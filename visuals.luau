@@ -171,6 +171,8 @@ local function checkValue(path, key, value, default)
 	end
 end
 
+local RAW = setmetatable({}, { __mode = "k" })
+
 local function strict(defaults, given, path, partial, specials)
 	given = given or {}
 	specials = specials or {}
@@ -196,7 +198,10 @@ local function strict(defaults, given, path, partial, specials)
 			store[key] = default
 		end
 	end
-	return setmetatable({}, {
+	for key, special in specials do
+		store[key] = special.value
+	end
+	local proxy = setmetatable({}, {
 		__index = function(_, key)
 			local special = specials[key]
 			if special then
@@ -215,6 +220,7 @@ local function strict(defaults, given, path, partial, specials)
 					error(string.format("visuals: set the fields of '%s%s' instead of replacing it", path, key), 0)
 				end
 				special.value = special.replace(value)
+				store[key] = special.value
 				return
 			end
 			local default = defaults[key]
@@ -230,6 +236,8 @@ local function strict(defaults, given, path, partial, specials)
 			return next, store
 		end,
 	})
+	RAW[proxy] = store
+	return proxy
 end
 
 local buildSettings
@@ -366,27 +374,27 @@ end
 
 local function setting(entry, key)
 	for _, layer in entry.overlays do
-		local value = layer[key]
+		local value = RAW[layer][key]
 		if value ~= nil then
 			return value
 		end
 	end
-	return entry.group.settings[key]
+	return RAW[entry.group.settings][key]
 end
 
 local function option(entry, feature, key)
 	for _, layer in entry.overlays do
-		local value = layer[feature][key]
+		local value = RAW[RAW[layer][feature]][key]
 		if value ~= nil then
 			return value
 		end
 	end
-	return entry.group.settings[feature][key]
+	return RAW[RAW[entry.group.settings][feature]][key]
 end
 
 local function theme(entry, key)
 	for _, layer in entry.overlays do
-		local value = layer.theme[key]
+		local value = RAW[RAW[layer].theme][key]
 		if value ~= nil then
 			return value
 		end
@@ -394,9 +402,9 @@ local function theme(entry, key)
 	if TEAM_TINTED[key] and entry.view.teamColor and setting(entry, "useTeamColor") then
 		return entry.view.teamColor
 	end
-	local value = entry.group.settings.theme[key]
+	local value = RAW[RAW[entry.group.settings].theme][key]
 	if value == nil then
-		value = entry.esp.theme[key]
+		value = RAW[entry.esp.theme][key]
 	end
 	return value
 end
@@ -554,17 +562,45 @@ local function square(entry, key, zIndex, filled, color, transparency, position,
 	set(item, "Visible", true)
 end
 
+local STYLE_KEYS = {}
+for _, feature in { "box", "tracer", "skeleton", "headDot", "look", "arrow" } do
+	STYLE_KEYS[feature] = {
+		color = feature .. "Color",
+		thickness = feature .. "Thickness",
+		outline = feature .. "Outline",
+		transparency = feature .. "Transparency",
+	}
+end
+
+local function styleOf(entry, feature)
+	local style = entry.styles[feature]
+	if not style then
+		style = {}
+		entry.styles[feature] = style
+	end
+	if style.tick ~= entry.tick then
+		local keys = STYLE_KEYS[feature]
+		style.tick = entry.tick
+		style.color = theme(entry, keys.color)
+		style.thickness = theme(entry, keys.thickness)
+		style.outlined = theme(entry, keys.outline)
+		style.alpha = drawingAlpha(entry, theme(entry, keys.transparency))
+		style.outlineColor = theme(entry, "outlineColor")
+	end
+	return style
+end
+
 local function line(entry, key, from, to, feature)
-	local thickness = theme(entry, feature .. "Thickness")
-	local alpha = drawingAlpha(entry, theme(entry, feature .. "Transparency"))
+	local style = styleOf(entry, feature)
+	local thickness, alpha = style.thickness, style.alpha
 	local delta = to - from
 	local direction = if delta.Magnitude > 1e-3 then delta.Unit else Vector2.zero
-	if theme(entry, feature .. "Outline") then
+	if style.outlined then
 		local reach = direction * (thickness / 2 + 1)
 		local border = use(entry, key .. "Border", newDrawing, "Line", 1)
 		set(border, "From", from - reach)
 		set(border, "To", to + reach)
-		set(border, "Color", theme(entry, "outlineColor"))
+		set(border, "Color", style.outlineColor)
 		set(border, "Thickness", thickness + 2)
 		set(border, "Transparency", alpha)
 		set(border, "Visible", true)
@@ -573,7 +609,7 @@ local function line(entry, key, from, to, feature)
 	local main = use(entry, key, newDrawing, "Line", 2)
 	set(main, "From", from - reach)
 	set(main, "To", to + reach)
-	set(main, "Color", theme(entry, feature .. "Color"))
+	set(main, "Color", style.color)
 	set(main, "Thickness", thickness)
 	set(main, "Transparency", alpha)
 	set(main, "Visible", true)
@@ -591,15 +627,14 @@ local function ring(entry, key, center, radius, color, thickness, alpha, zIndex)
 end
 
 local function circle(entry, key, center, radius, feature)
-	local thickness = theme(entry, feature .. "Thickness")
-	local alpha = drawingAlpha(entry, theme(entry, feature .. "Transparency"))
-	if theme(entry, feature .. "Outline") then
+	local style = styleOf(entry, feature)
+	local thickness, alpha = style.thickness, style.alpha
+	if style.outlined then
 		local offset = thickness / 2 + 0.5
-		local outline = theme(entry, "outlineColor")
-		ring(entry, key .. "Outer", center, radius + offset, outline, 1, alpha, 1)
-		ring(entry, key .. "Inner", center, math.max(radius - offset, 0.5), outline, 1, alpha, 1)
+		ring(entry, key .. "Outer", center, radius + offset, style.outlineColor, 1, alpha, 1)
+		ring(entry, key .. "Inner", center, math.max(radius - offset, 0.5), style.outlineColor, 1, alpha, 1)
 	end
-	ring(entry, key, center, radius, theme(entry, feature .. "Color"), thickness, alpha, 2)
+	ring(entry, key, center, radius, style.color, thickness, alpha, 2)
 	set(entry.elements[key], "Filled", theme(entry, feature .. "Filled") == true)
 end
 
@@ -617,14 +652,15 @@ local function grow(a, b, c, amount)
 end
 
 local function triangle(entry, key, a, b, c, feature)
-	local alpha = drawingAlpha(entry, theme(entry, feature .. "Transparency"))
-	if theme(entry, feature .. "Outline") then
+	local style = styleOf(entry, feature)
+	local alpha = style.alpha
+	if style.outlined then
 		local outerA, outerB, outerC = grow(a, b, c, 1)
 		local border = use(entry, key .. "Border", newDrawing, "Triangle", 1, true)
 		set(border, "PointA", outerA)
 		set(border, "PointB", outerB)
 		set(border, "PointC", outerC)
-		set(border, "Color", theme(entry, "outlineColor"))
+		set(border, "Color", style.outlineColor)
 		set(border, "Transparency", alpha)
 		set(border, "Visible", true)
 	end
@@ -632,7 +668,7 @@ local function triangle(entry, key, a, b, c, feature)
 	set(main, "PointA", a)
 	set(main, "PointB", b)
 	set(main, "PointC", c)
-	set(main, "Color", theme(entry, feature .. "Color"))
+	set(main, "Color", style.color)
 	set(main, "Transparency", alpha)
 	set(main, "Visible", true)
 end
@@ -754,9 +790,20 @@ local function healthShown(entry)
 	return option(entry, "health", "enabled") and entry.view.fraction ~= nil
 end
 
-local function screen(camera, point)
-	local projected = camera:WorldToViewportPoint(point)
-	return Vector2.new(projected.X, projected.Y), projected.Z > 0
+local projection = { inverse = CFrame.identity, centerX = 0, centerY = 0, scale = 1 }
+
+local function updateProjection(camera)
+	local viewport = camera.ViewportSize
+	projection.inverse = camera.CFrame:Inverse()
+	projection.centerX, projection.centerY = viewport.X / 2, viewport.Y / 2
+	projection.scale = projection.centerY / math.tan(math.rad(camera.FieldOfView) / 2)
+end
+
+local function screen(point)
+	local relative = projection.inverse * point
+	local depth = -relative.Z
+	local scale = projection.scale / depth
+	return Vector2.new(projection.centerX + relative.X * scale, projection.centerY - relative.Y * scale), depth > 0
 end
 
 local function drawBox(entry)
@@ -925,9 +972,18 @@ local function drawSkeleton(entry, camera)
 	local count = 0
 	if entry.r6 or entry.r15 then
 		local segments = if entry.r6 then r6Segments(entry.r6, entry.segmentBuffer) else r15Segments(entry.r15, entry.segmentBuffer)
+		local projected, front = entry.projectBuffer, entry.frontBuffer
+		table.clear(projected)
+		table.clear(front)
+		for _, point in segments do
+			if projected[point] == nil then
+				projected[point], front[point] = screen(point)
+			end
+		end
 		for index = 1, #segments, 2 do
-			local a, aFront = screen(camera, segments[index])
-			local b, bFront = screen(camera, segments[index + 1])
+			local from, to = segments[index], segments[index + 1]
+			local a, aFront = projected[from], front[from]
+			local b, bFront = projected[to], front[to]
 			if aFront and bFront then
 				count += 1
 				line(entry, BONE_KEYS[count], a, b, "skeleton")
@@ -953,8 +1009,8 @@ local function drawSkeleton(entry, camera)
 		else
 			to = from + (motor.Part1.Position - from) * 2
 		end
-		local a, aFront = screen(camera, from)
-		local b, bFront = screen(camera, to)
+		local a, aFront = screen(from)
+		local b, bFront = screen(to)
 		if aFront and bFront and count < #BONE_KEYS then
 			count += 1
 			line(entry, BONE_KEYS[count], a, b, "skeleton")
@@ -967,23 +1023,27 @@ local function drawHead(entry, camera)
 	if not head then
 		return
 	end
-	local center, inFront = screen(camera, head.Position)
+	local center, inFront = screen(head.Position)
 	if not inFront then
 		return
 	end
 	if option(entry, "headDot", "enabled") then
-		local edge = screen(camera, head.Position + camera.CFrame.UpVector * head.Size.Y / 2)
+		local edge = screen(head.Position + camera.CFrame.UpVector * head.Size.Y / 2)
 		local radius = (edge - center).Magnitude
 		if radius >= 4 then
 			circle(entry, "headDot", center, radius, "headDot")
 		end
 	end
 	if option(entry, "look", "enabled") then
-		local tip, tipFront = screen(camera, head.Position + head.CFrame.LookVector * option(entry, "look", "length"))
+		local tip, tipFront = screen(head.Position + head.CFrame.LookVector * option(entry, "look", "length"))
 		if tipFront then
 			line(entry, "look", center, tip, "look")
 		end
 	end
+end
+
+local function snap(point)
+	return Vector2.new(math.round(point.X), math.round(point.Y))
 end
 
 local function rotate(vector, angle)
@@ -1003,7 +1063,7 @@ local function drawArrow(entry, camera, viewport)
 	local radius = math.min(option(entry, "arrow", "radius"), viewport.Y / 2 - 20)
 	local size = option(entry, "arrow", "size")
 	local tip = viewport / 2 + direction * radius
-	triangle(entry, "arrow", tip, tip - rotate(direction, 0.5) * size, tip - rotate(direction, -0.5) * size, "arrow")
+	triangle(entry, "arrow", snap(tip), snap(tip - rotate(direction, 0.5) * size), snap(tip - rotate(direction, -0.5) * size), "arrow")
 end
 
 local function drawSideBar(entry)
@@ -1358,7 +1418,7 @@ local function measure(entry, model, camera, pivot)
 		local cframe, half = part.CFrame, part.Size / 2
 		for _, sign in CORNERS do
 			local world = cframe * (half * sign)
-			local point, front = screen(camera, world)
+			local point, front = screen(world)
 			inFront = inFront and front
 			low2 = if low2 then low2:Min(point) else point
 			high2 = if high2 then high2:Max(point) else point
@@ -1372,13 +1432,13 @@ local function measure(entry, model, camera, pivot)
 
 	view.corners3d = nil
 	if not low2 then
-		low2, inFront = screen(camera, pivot.Position)
+		low2, inFront = screen(pivot.Position)
 		high2 = low2
 	elseif low3 and inFront then
 		local center, extent = (low3 + high3) / 2, (high3 - low3) / 2
 		local corners = view.cornerBuffer
 		for index, sign in CORNERS do
-			corners[index] = screen(camera, pivot * (center + extent * sign))
+			corners[index] = screen(pivot * (center + extent * sign))
 		end
 		view.corners3d = corners
 	end
@@ -1600,6 +1660,9 @@ function Group:add(target, accessors)
 		partsBuffer = {},
 		segmentBuffer = {},
 		armBuffer = {},
+		projectBuffer = {},
+		frontBuffer = {},
+		styles = {},
 		view = { cornerBuffer = {} },
 		tick = 0,
 		opacity = 1,
@@ -1706,6 +1769,7 @@ function Esp:render(deltaTime)
 	table.clear(chams)
 	if camera and self.enabled then
 		local origin = camera.CFrame.Position
+		updateProjection(camera)
 		local character = LocalPlayer.Character
 		local root = character and character:FindFirstChild("HumanoidRootPart")
 		local from = if root then root.Position else origin
