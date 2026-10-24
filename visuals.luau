@@ -1150,7 +1150,7 @@ local function occluded(entry, origin, model, point)
 	return entry.occluded
 end
 
-local function describe(entry, camera, origin, deltaTime)
+local function describe(entry, camera, origin, from, deltaTime)
 	local accessors, target = entry.accessors, entry.target
 	local overlays = entry.overlays
 	table.clear(overlays)
@@ -1173,7 +1173,7 @@ local function describe(entry, camera, origin, deltaTime)
 	end
 	local view = entry.view
 	view.model, view.pivot, view.position = model, pivot, pivot.Position
-	view.distance = (pivot.Position - origin).Magnitude
+	view.distance = (pivot.Position - from).Magnitude
 	if view.distance > setting(entry, "maxDistance") then
 		return false
 	end
@@ -1432,6 +1432,9 @@ function Esp:render(deltaTime)
 	table.clear(chams)
 	if camera and self.enabled then
 		local origin = camera.CFrame.Position
+		local character = LocalPlayer.Character
+		local root = character and character:FindFirstChild("HumanoidRootPart")
+		local from = if root then root.Position else origin
 		local viewport = camera.ViewportSize
 		local mouse = UserInputService:GetMouseLocation()
 		for _, group in self.groups do
@@ -1443,7 +1446,7 @@ function Esp:render(deltaTime)
 					continue
 				end
 				entry.tick += 1
-				if describe(entry, camera, origin, deltaTime) then
+				if describe(entry, camera, origin, from, deltaTime) then
 					table.insert(shown, entry)
 				else
 					entry.shownHealth = nil

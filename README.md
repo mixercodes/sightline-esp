@@ -41,7 +41,7 @@ esp:unload()
 |---|---|---|
 | `enabled` | `true` | |
 | `layout` | `"classic"` | `classic`, `card`, `badge`, `minimal` |
-| `maxDistance` | `5000` | studs |
+| `maxDistance` | `5000` | studs, measured from your HumanoidRootPart (the camera when you have no character) |
 | `maxTargets` | `0` | keep only the nearest N, 0 for all |
 | `useTeamColor` | `false` | box, tracer, skeleton, head dot, arrow and chams take the team colour |
 | `visibilityCheck` | `false` | raycasts every 0.1s and applies the `occluded` overlay when blocked |
