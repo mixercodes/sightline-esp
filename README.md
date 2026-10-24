@@ -48,7 +48,7 @@ esp:unload()
 | `fade` | off, `start 300`, `finish 1500`, `minOpacity 0.25` | fades everything with distance |
 | `focus` | off, `radius 150` | the target nearest the mouse gets the `focused` overlay |
 | `box` | off, `style "full"`, `filled false` | styles: `full`, `corners`, `3d` |
-| `health` | off, `style "bar"`, `format "value"`, `gradient true` | styles: `bar`, `number`, `both`; formats: `value`, `percent`, `fraction` |
+| `health` | off, `style "bar"`, `format "value"`, `gradient true` | `bar`, `number`, or `both` for the bar and the number together; formats: `value`, `percent`, `fraction` |
 | `name` | on, `style "display"` | `display`, `username`, `both` |
 | `avatar` | off | headshot next to the name |
 | `distance` | off, `unit "studs"` | `studs`, `meters` |
@@ -60,7 +60,7 @@ esp:unload()
 | `arrow` | off, `radius 160`, `size 12` | points at targets that are off screen or behind you |
 | `chams` | off, `throughWalls true` | Highlight fill and outline, shared pool of 31 for the nearest targets |
 
-`esp:players` turns on box, health and name. `esp:group` turns on name.
+`esp:players` also turns on box and health.
 
 ### Overlays
 
@@ -76,16 +76,27 @@ esp:players({
 })
 ```
 
-The players group puts teammates in the `teammate` variant.
+The players group puts teammates in the `teammate` variant. Overlays can be added or replaced while running:
+
+```luau
+players.settings.variants.boss = { theme = { nameColor = Color3.fromRGB(255, 200, 60) } }
+players.settings.occluded = { theme = { boxColor = Color3.fromRGB(90, 90, 90) } }
+```
 
 ## Layouts
 
 - `classic`: health bar and/or number left of the box, avatar and name above, distance and details below.
-- `card`: dark rounded panel with avatar, name, health number, distance, a details row and a slim bar.
-- `badge`: compact pill with a round avatar, name, health number, distance and bar.
+- `card`: dark rounded panel with avatar, name, health number, distance and a details row.
+- `badge`: compact pill with a round avatar, name, health number and distance.
 - `minimal`: one line of shadowed text.
 
-The health bar is a fixed green-to-red gradient: as health drops, the top empties and the fill shows more red. Set `health.gradient = false` for a solid bar that changes colour instead.
+Panels never draw a bar inside themselves: the health number goes in the panel and, with `health.style` set to `bar` or `both`, the bar sits left of the box as in `classic`.
+
+The health bar is a fixed gradient from `theme.healthColors` (0 is empty, 1 is full, any number of stops): as health drops, the top empties and the fill shows more of the low end. The same colours tint the health number. Set `health.gradient = false` for a solid bar that changes colour instead.
+
+```luau
+esp.theme.healthColors = ColorSequence.new(Color3.fromRGB(80, 0, 255), Color3.fromRGB(0, 220, 255))
+```
 
 ## Accessors
 
@@ -107,6 +118,18 @@ Targets with no parts (attachments, empty models) get text at their position and
 
 ## Theme
 
-`font`, `textSize`, `smallTextSize`, `textColor`, `mutedTextColor`, `tagColor`, `shadowColor`, `shadowTransparency`, `shadowOffset`, `outlineColor`, `lineThickness`, `lineOutline`, `boxColor`, `boxFillColor`, `boxFillTransparency`, `cornerLength`, `tracerColor`, `skeletonColor`, `headDotColor`, `lookColor`, `arrowColor`, `chamsFillColor`, `chamsFillTransparency`, `chamsOutlineColor`, `chamsOutlineTransparency`, `healthyHue`, `healthSmoothing`, `barWidth`, `barGap`, `textGap`, `lineSpacing`, `avatarSize`, `avatarCornerRadius`, `panelColor`, `panelTransparency`, `panelCornerRadius`, `panelPadding`, `panelSpacing`, `panelMinWidth`, `panelBarHeight`, `panelBarColor`.
+| Group | Keys |
+|---|---|
+| Text | `font`, `textSize`, `smallTextSize`, `nameColor`, `distanceColor`, `weaponColor`, `tagColor`, `shadowColor`, `shadowTransparency`, `shadowOffset` |
+| Lines | `outlineColor`, `lineThickness`, `lineOutline` |
+| Box | `boxColor`, `boxFillColor`, `boxFillTransparency`, `cornerLength` |
+| Geometry | `tracerColor`, `skeletonColor`, `headDotColor`, `lookColor`, `arrowColor` |
+| Chams | `chamsFillColor`, `chamsFillTransparency`, `chamsOutlineColor`, `chamsOutlineTransparency` |
+| Health | `healthColors`, `healthSmoothing`, `barWidth`, `barGap` |
+| Spacing | `textGap`, `lineSpacing` |
+| Avatar | `avatarSize`, `avatarCornerRadius`, `avatarBackgroundColor`, `avatarBackgroundTransparency` |
+| Panels | `panelColor`, `panelTransparency`, `panelCornerRadius`, `panelPadding`, `panelSpacing`, `panelMinWidth` |
 
-A theme value resolves from the overlays, then the group, then `esp.theme`.
+A theme value resolves from the overlays, then the team colour (with `useTeamColor`), then the group, then `esp.theme`. Values are type-checked, so `boxColor = "red"` errors.
+
+A target whose accessor errors is hidden and warned about once; the other targets keep drawing.

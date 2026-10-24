@@ -2,11 +2,12 @@ local THEME_DEFAULTS = {
 	font = Font.new("rbxasset://fonts/families/BuilderSans.json", Enum.FontWeight.SemiBold),
 	textSize = 13,
 	smallTextSize = 11,
-	textColor = Color3.new(1, 1, 1),
-	mutedTextColor = Color3.fromRGB(170, 170, 180),
+	nameColor = Color3.new(1, 1, 1),
+	distanceColor = Color3.fromRGB(200, 200, 210),
+	weaponColor = Color3.fromRGB(200, 200, 210),
 	tagColor = Color3.fromRGB(255, 200, 80),
 	shadowColor = Color3.new(0, 0, 0),
-	shadowTransparency = 0.3,
+	shadowTransparency = 0,
 	shadowOffset = Vector2.new(1, 1),
 	outlineColor = Color3.new(0, 0, 0),
 	lineThickness = 1,
@@ -24,7 +25,11 @@ local THEME_DEFAULTS = {
 	chamsFillTransparency = 0.5,
 	chamsOutlineColor = Color3.new(1, 1, 1),
 	chamsOutlineTransparency = 0,
-	healthyHue = 1 / 3,
+	healthColors = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 0, 0)),
+		ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 255, 0)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(0, 255, 0)),
+	}),
 	healthSmoothing = 10,
 	barWidth = 1,
 	barGap = 4,
@@ -32,14 +37,14 @@ local THEME_DEFAULTS = {
 	lineSpacing = 1,
 	avatarSize = 18,
 	avatarCornerRadius = 4,
+	avatarBackgroundColor = Color3.fromRGB(16, 16, 20),
+	avatarBackgroundTransparency = 0.3,
 	panelColor = Color3.fromRGB(16, 16, 20),
 	panelTransparency = 0.15,
 	panelCornerRadius = 6,
 	panelPadding = 5,
 	panelSpacing = 6,
 	panelMinWidth = 48,
-	panelBarHeight = 2,
-	panelBarColor = Color3.fromRGB(45, 45, 52),
 }
 local SETTINGS_DEFAULTS = {
 	enabled = true,
@@ -52,7 +57,7 @@ local SETTINGS_DEFAULTS = {
 	focus = { enabled = false, radius = 150 },
 	box = { enabled = false, style = "full", filled = false },
 	health = { enabled = false, style = "bar", format = "value", gradient = true },
-	name = { enabled = false, style = "display" },
+	name = { enabled = true, style = "display" },
 	avatar = { enabled = false },
 	distance = { enabled = false, unit = "studs" },
 	weapon = { enabled = false },
@@ -79,8 +84,7 @@ local TEAM_TINTED = {
 	boxColor = true, tracerColor = true, skeletonColor = true, headDotColor = true,
 	arrowColor = true, chamsFillColor = true, chamsOutlineColor = true,
 }
-local GROUP_PRESET = { name = { enabled = true } }
-local PLAYER_PRESET = { box = { enabled = true }, health = { enabled = true }, name = { enabled = true } }
+local PLAYER_PRESET = { box = { enabled = true }, health = { enabled = true } }
 local HEADSHOT = "rbxthumb://type=AvatarHeadShot&id=%d&w=60&h=60"
 local FRIEND_TAGS = { "Friend" }
 local STUDS_TO_METERS = 0.28
@@ -119,6 +123,7 @@ end
 local BONE_KEYS = numberedKeys("bone", 64)
 local EDGE_KEYS = numberedKeys("edge", 12)
 local CORNER_KEYS = numberedKeys("corner", 8)
+local CORNER_OUTLINE_KEYS = numberedKeys("cornerOutline", 8)
 local DETAIL_KEYS = numberedKeys("detail", 16)
 local BOX_EDGES = {}
 for corner = 0, 7 do
@@ -136,26 +141,35 @@ local Group = {}
 Group.__index = Group
 
 local function unknown(kind, path, key)
-	error(string.format("visuals: unknown %s '%s%s'", kind, path, tostring(key)), 4)
+	error(string.format("visuals: unknown %s '%s%s'", kind, path, tostring(key)), 0)
 end
 
-local function checkChoice(path, key, value)
+local function checkValue(path, key, value, default)
+	if value == nil then
+		return
+	end
+	if typeof(value) ~= typeof(default) then
+		error(string.format("visuals: '%s%s' must be a %s, got %s", path, key, typeof(default), typeof(value)), 0)
+	end
 	local choices = CHOICES[path .. key]
-	if choices and value ~= nil and not choices[value] then
-		error(string.format("visuals: '%s%s' cannot be '%s'", path, key, tostring(value)), 4)
+	if choices and not choices[value] then
+		error(string.format("visuals: '%s%s' cannot be '%s'", path, key, tostring(value)), 0)
 	end
 end
 
-local function strict(defaults, given, path, partial)
+local function strict(defaults, given, path, partial, specials)
 	given = given or {}
+	specials = specials or {}
 	if type(given) ~= "table" then
-		error(string.format("visuals: '%s' must be a table", path), 3)
+		error(string.format("visuals: '%s' must be a table", path), 0)
 	end
 	for key, value in given do
-		if defaults[key] == nil then
+		local default = defaults[key]
+		if default == nil then
 			unknown("setting", path, key)
+		elseif type(default) ~= "table" then
+			checkValue(path, key, value, default)
 		end
-		checkChoice(path, key, value)
 	end
 	local store = {}
 	for key, default in defaults do
@@ -170,6 +184,10 @@ local function strict(defaults, given, path, partial)
 	end
 	return setmetatable({}, {
 		__index = function(_, key)
+			local special = specials[key]
+			if special then
+				return special.value
+			end
 			local value = store[key]
 			if value == nil and defaults[key] == nil then
 				unknown("setting", path, key)
@@ -177,12 +195,21 @@ local function strict(defaults, given, path, partial)
 			return value
 		end,
 		__newindex = function(_, key, value)
-			if defaults[key] == nil then
-				unknown("setting", path, key)
-			elseif type(defaults[key]) == "table" then
-				error(string.format("visuals: '%s%s' is a table, set its fields instead", path, key), 2)
+			local special = specials[key]
+			if special then
+				if not special.replace then
+					error(string.format("visuals: set the fields of '%s%s' instead of replacing it", path, key), 0)
+				end
+				special.value = special.replace(value)
+				return
 			end
-			checkChoice(path, key, value)
+			local default = defaults[key]
+			if default == nil then
+				unknown("setting", path, key)
+			elseif type(default) == "table" then
+				error(string.format("visuals: set the fields of '%s%s' instead of replacing it", path, key), 0)
+			end
+			checkValue(path, key, value, default)
 			store[key] = value
 		end,
 		__iter = function()
@@ -191,29 +218,43 @@ local function strict(defaults, given, path, partial)
 	})
 end
 
-local function buildSettings(given, partial)
+local buildSettings
+
+local function partialSettings(given)
+	return buildSettings(given, true)
+end
+
+function buildSettings(given, partial)
 	local plain = table.clone(given or {})
 	local overlays = {}
 	for key in OVERLAY_KEYS do
 		overlays[key] = plain[key]
 		plain[key] = nil
 	end
-	local settings = strict(SETTINGS_DEFAULTS, plain, "", partial)
-	rawset(settings, "theme", strict(THEME_DEFAULTS, overlays.theme, "theme.", true))
+	local specials = { theme = { value = strict(THEME_DEFAULTS, overlays.theme, "theme.", true) } }
 	if partial then
 		if overlays.variants or overlays.occluded or overlays.focused then
 			error("visuals: variants, occluded and focused only go at the top of a group's settings", 3)
 		end
-		return settings
+	else
+		local built = {}
+		local variants = setmetatable({}, {
+			__index = built,
+			__newindex = function(_, name, variant)
+				built[name] = if variant then partialSettings(variant) else nil
+			end,
+			__iter = function()
+				return next, built
+			end,
+		})
+		for name, variant in overlays.variants or {} do
+			variants[name] = variant
+		end
+		specials.variants = { value = variants }
+		specials.occluded = { value = partialSettings(overlays.occluded), replace = partialSettings }
+		specials.focused = { value = partialSettings(overlays.focused), replace = partialSettings }
 	end
-	local variants = {}
-	for name, variant in overlays.variants or {} do
-		variants[name] = buildSettings(variant, true)
-	end
-	rawset(settings, "variants", variants)
-	rawset(settings, "occluded", buildSettings(overlays.occluded, true))
-	rawset(settings, "focused", buildSettings(overlays.focused, true))
-	return settings
+	return strict(SETTINGS_DEFAULTS, plain, "", partial, specials)
 end
 
 local function overlay(base, top)
@@ -330,14 +371,14 @@ local function option(entry, feature, key)
 end
 
 local function theme(entry, key)
-	if TEAM_TINTED[key] and entry.view.teamColor and setting(entry, "useTeamColor") then
-		return entry.view.teamColor
-	end
 	for _, layer in entry.overlays do
 		local value = layer.theme[key]
 		if value ~= nil then
 			return value
 		end
+	end
+	if TEAM_TINTED[key] and entry.view.teamColor and setting(entry, "useTeamColor") then
+		return entry.view.teamColor
 	end
 	local value = entry.group.settings.theme[key]
 	if value == nil then
@@ -384,26 +425,28 @@ local function colored(value, color)
 	return string.format('<font color="#%s">%s</font>', color:ToHex(), escape(value))
 end
 
-local function healthColor(entry, fraction)
-	return Color3.fromHSV(theme(entry, "healthyHue") * fraction, 1, 1)
+local keypointCache = setmetatable({}, { __mode = "k" })
+local function sample(sequence, t)
+	local points = keypointCache[sequence]
+	if not points then
+		points = sequence.Keypoints
+		keypointCache[sequence] = points
+	end
+	for index = 2, #points do
+		local upper = points[index]
+		if t <= upper.Time then
+			local lower = points[index - 1]
+			local span = upper.Time - lower.Time
+			return lower.Value:Lerp(upper.Value, if span > 0 then (t - lower.Time) / span else 0)
+		end
+	end
+	return points[#points].Value
 end
 
-local gradientCache = {}
-local function healthGradient(hue, vertical)
-	local key = hue .. (if vertical then "v" else "h")
-	local sequence = gradientCache[key]
-	if not sequence then
-		local points = {}
-		for step = 0, 6 do
-			local t = step / 6
-			local fraction = if vertical then 1 - t else t
-			table.insert(points, ColorSequenceKeypoint.new(t, Color3.fromHSV(hue * fraction, 1, 1)))
-		end
-		sequence = ColorSequence.new(points)
-		gradientCache[key] = sequence
-	end
-	return sequence
+local function healthColor(entry, fraction)
+	return sample(theme(entry, "healthColors"), fraction)
 end
+
 
 local function newDrawing(kind, zIndex, filled)
 	local drawing = Drawing.new(kind)
@@ -446,6 +489,7 @@ end
 local function newImage(parent)
 	local image = Instance.new("ImageLabel")
 	image.BackgroundTransparency = 1
+	image.BorderSizePixel = 0
 	image.ScaleType = Enum.ScaleType.Crop
 	image.Visible = false
 	image.Parent = parent
@@ -465,10 +509,10 @@ local function newBar(parent)
 	fill.BorderSizePixel = 0
 	fill.Parent = clip
 	local gradient = Instance.new("UIGradient")
+	gradient.Rotation = 270
 	gradient.Parent = fill
 	item.clip = cached(clip)
 	item.fill = cached(fill)
-	item.fillCorner = addCorner(fill)
 	item.gradient = cached(gradient)
 	return item
 end
@@ -507,26 +551,26 @@ local function line(entry, key, from, to, color)
 	set(main, "Visible", true)
 end
 
+local function ring(entry, key, center, radius, color, thickness, zIndex)
+	local item = use(entry, key, newDrawing, "Circle", zIndex, false)
+	set(item, "Position", center)
+	set(item, "Radius", radius)
+	set(item, "NumSides", 32)
+	set(item, "Color", color)
+	set(item, "Thickness", thickness)
+	set(item, "Transparency", drawingAlpha(entry, 0))
+	set(item, "Visible", true)
+end
+
 local function circle(entry, key, center, radius, color)
 	local thickness = theme(entry, "lineThickness")
 	if theme(entry, "lineOutline") then
-		local border = use(entry, key .. "Border", newDrawing, "Circle", 1, false)
-		set(border, "Position", center)
-		set(border, "Radius", radius)
-		set(border, "NumSides", 24)
-		set(border, "Color", theme(entry, "outlineColor"))
-		set(border, "Thickness", thickness + 2)
-		set(border, "Transparency", drawingAlpha(entry, 0))
-		set(border, "Visible", true)
+		local offset = thickness / 2 + 0.5
+		local outline = theme(entry, "outlineColor")
+		ring(entry, key .. "Outer", center, radius + offset, outline, 1, 1)
+		ring(entry, key .. "Inner", center, math.max(radius - offset, 0.5), outline, 1, 1)
 	end
-	local main = use(entry, key, newDrawing, "Circle", 2, false)
-	set(main, "Position", center)
-	set(main, "Radius", radius)
-	set(main, "NumSides", 24)
-	set(main, "Color", color)
-	set(main, "Thickness", thickness)
-	set(main, "Transparency", drawingAlpha(entry, 0))
-	set(main, "Visible", true)
+	ring(entry, key, center, radius, color, thickness, 2)
 end
 
 local function grow(a, b, c, amount)
@@ -572,12 +616,24 @@ local function styleLabel(entry, item, value, size, color, transparency, zIndex)
 	set(item, "Visible", true)
 end
 
-local function text(entry, key, parent, size, color, rich, plain)
+local function text(entry, key, parent, size, color, plain, rich)
 	local shadow = use(entry, key .. "Shadow", newLabel, parent)
 	local main = use(entry, key, newLabel, parent)
-	styleLabel(entry, shadow, escape(plain or rich), size, theme(entry, "shadowColor"), theme(entry, "shadowTransparency"), 3)
-	styleLabel(entry, main, rich, size, color, 0, 4)
+	local escaped = escape(plain)
+	styleLabel(entry, shadow, escaped, size, theme(entry, "shadowColor"), theme(entry, "shadowTransparency"), 3)
+	styleLabel(entry, main, rich or escaped, size, color, 0, 4)
 	return main, shadow, main.object.TextBounds
+end
+
+local function join(parts, separator)
+	local rich, plain = "", ""
+	for index = 1, #parts, 2 do
+		local value, color = parts[index], parts[index + 1]
+		local gap = if index > 1 then separator else ""
+		rich ..= gap .. (if color then colored(value, color) else escape(value))
+		plain ..= gap .. value
+	end
+	return rich, plain
 end
 
 local function place(entry, main, shadow, x, y)
@@ -590,52 +646,13 @@ local function avatarImage(entry, key, parent, image, x, y, size, radius)
 	local item = use(entry, key, newImage, parent)
 	set(item, "Image", image)
 	set(item, "ImageTransparency", guiAlpha(entry, 0))
+	set(item, "BackgroundColor3", theme(entry, "avatarBackgroundColor"))
+	set(item, "BackgroundTransparency", guiAlpha(entry, theme(entry, "avatarBackgroundTransparency")))
 	set(item, "Position", UDim2.fromOffset(x, y))
 	set(item, "Size", UDim2.fromOffset(size, size))
 	set(item, "ZIndex", 4)
 	set(item, "Visible", true)
 	set(item.corner, "CornerRadius", UDim.new(0, radius))
-end
-
-local function healthBar(entry, key, parent, x, y, width, height, inset, vertical, backColor, backTransparency, rounded)
-	local view = entry.view
-	local item = use(entry, key, newBar, parent)
-	set(item, "Position", UDim2.fromOffset(x, y))
-	set(item, "Size", UDim2.fromOffset(width, height))
-	set(item, "BackgroundColor3", backColor)
-	set(item, "BackgroundTransparency", guiAlpha(entry, backTransparency))
-	set(item, "ZIndex", 3)
-	set(item, "Visible", true)
-	local radius = if rounded then UDim.new(1, 0) else UDim.new()
-	set(item.corner, "CornerRadius", radius)
-	set(item.fillCorner, "CornerRadius", radius)
-
-	local innerWidth, innerHeight = width - inset * 2, height - inset * 2
-	if vertical then
-		local fill = math.floor(innerHeight * view.fraction + 0.5)
-		set(item.clip, "Position", UDim2.fromOffset(inset, inset + innerHeight - fill))
-		set(item.clip, "Size", UDim2.fromOffset(innerWidth, fill))
-		set(item.fill, "Position", UDim2.fromOffset(0, fill - innerHeight))
-	else
-		local fill = math.floor(innerWidth * view.fraction + 0.5)
-		set(item.clip, "Position", UDim2.fromOffset(inset, inset))
-		set(item.clip, "Size", UDim2.fromOffset(fill, innerHeight))
-		set(item.fill, "Position", UDim2.fromOffset(0, 0))
-	end
-	set(item.fill, "Size", UDim2.fromOffset(innerWidth, innerHeight))
-	set(item.fill, "BackgroundTransparency", guiAlpha(entry, 0))
-	set(item.fill, "ZIndex", 4)
-
-	if option(entry, "health", "gradient") then
-		set(item.gradient, "Enabled", true)
-		set(item.gradient, "Color", healthGradient(theme(entry, "healthyHue"), vertical))
-		set(item.gradient, "Rotation", if vertical then 90 else 0)
-		set(item.fill, "BackgroundColor3", Color3.new(1, 1, 1))
-	else
-		set(item.gradient, "Enabled", false)
-		set(item.fill, "BackgroundColor3", healthColor(entry, view.fraction))
-	end
-	return item
 end
 
 local function displayName(entry)
@@ -655,11 +672,11 @@ local function healthText(entry)
 	local view = entry.view
 	local format = option(entry, "health", "format")
 	if format == "percent" then
-		return string.format("%d%%", math.floor(view.rawFraction * 100 + 0.5))
+		return string.format("%d%%", math.round(math.clamp(view.health / math.max(view.maxHealth, 1), 0, 1) * 100))
 	elseif format == "fraction" then
-		return string.format("%d/%d", math.floor(view.health + 0.5), math.floor(view.maxHealth + 0.5))
+		return string.format("%d/%d", math.round(view.health), math.round(view.maxHealth))
 	end
-	return tostring(math.floor(view.health + 0.5))
+	return tostring(math.round(view.health))
 end
 
 local function distanceText(entry)
@@ -669,30 +686,41 @@ local function distanceText(entry)
 	return string.format("%d studs", entry.view.distance)
 end
 
-local function details(entry)
+local function addPart(parts, value, color)
+	table.insert(parts, value)
+	table.insert(parts, color or false)
+end
+
+local function addDetails(entry, parts)
 	local view = entry.view
-	local list = entry.detailBuffer
-	table.clear(list)
 	if option(entry, "weapon", "enabled") and view.weapon then
-		table.insert(list, colored(view.weapon, theme(entry, "mutedTextColor")))
-		table.insert(list, view.weapon)
+		addPart(parts, view.weapon, theme(entry, "weaponColor"))
 	end
 	if option(entry, "team", "enabled") and view.teamName then
-		table.insert(list, colored(view.teamName, view.teamColor or theme(entry, "mutedTextColor")))
-		table.insert(list, view.teamName)
+		addPart(parts, view.teamName, view.teamColor or theme(entry, "weaponColor"))
 	end
 	if option(entry, "tags", "enabled") and view.tags then
 		local color = theme(entry, "tagColor")
 		for _, tag in view.tags do
-			table.insert(list, colored(tag, color))
-			table.insert(list, tag)
+			addPart(parts, tostring(tag), color)
 		end
 	end
-	return list
+	return parts
+end
+
+local function freshParts(entry)
+	local parts = entry.partsBuffer
+	table.clear(parts)
+	return parts
 end
 
 local function healthShown(entry)
 	return option(entry, "health", "enabled") and entry.view.fraction ~= nil
+end
+
+local function screen(camera, point)
+	local projected = camera:WorldToViewportPoint(point)
+	return Vector2.new(projected.X, projected.Y), projected.Z > 0
 end
 
 local function drawBox(entry)
@@ -723,27 +751,40 @@ local function drawBox(entry)
 	end
 
 	if style == "corners" then
-		local length = math.max(2, math.floor(math.min(width, height) * theme(entry, "cornerLength")))
-		local left, top, right, bottom = view.minX, view.minY, view.maxX, view.maxY
-		local points = {
-			{ Vector2.new(left, top), Vector2.new(left + length, top) },
-			{ Vector2.new(left, top), Vector2.new(left, top + length) },
-			{ Vector2.new(right, top), Vector2.new(right - length, top) },
-			{ Vector2.new(right, top), Vector2.new(right, top + length) },
-			{ Vector2.new(left, bottom), Vector2.new(left + length, bottom) },
-			{ Vector2.new(left, bottom), Vector2.new(left, bottom - length) },
-			{ Vector2.new(right, bottom), Vector2.new(right - length, bottom) },
-			{ Vector2.new(right, bottom), Vector2.new(right, bottom - length) },
+		local thickness = math.max(1, math.floor(theme(entry, "lineThickness")))
+		local length = math.max(thickness + 1, math.floor(math.min(width, height) * theme(entry, "cornerLength")))
+		local left, top = view.minX, view.minY
+		local right, bottom = view.maxX - thickness + 1, view.maxY - thickness + 1
+		local farX, farY = view.maxX - length + 1, view.maxY - length + 1
+		local arms = {
+			left, top, length, thickness,
+			left, top, thickness, length,
+			farX, top, length, thickness,
+			right, top, thickness, length,
+			left, bottom, length, thickness,
+			left, farY, thickness, length,
+			farX, bottom, length, thickness,
+			right, farY, thickness, length,
 		}
-		for index, pair in points do
-			line(entry, CORNER_KEYS[index], pair[1], pair[2], color)
+		local outline = theme(entry, "outlineColor")
+		local drawOutline = theme(entry, "lineOutline")
+		for index = 1, 8 do
+			local base = (index - 1) * 4
+			local armPosition = Vector2.new(arms[base + 1], arms[base + 2])
+			local armSize = Vector2.new(arms[base + 3], arms[base + 4])
+			if drawOutline then
+				square(entry, CORNER_OUTLINE_KEYS[index], 1, true, outline, 0, armPosition - Vector2.one, armSize + Vector2.one * 2)
+			end
+			square(entry, CORNER_KEYS[index], 2, true, color, 0, armPosition, armSize)
 		end
 		return
 	end
 
-	local outline = theme(entry, "outlineColor")
-	square(entry, "boxOuter", 1, false, outline, 0, position - Vector2.one, size + Vector2.one * 2)
-	square(entry, "boxInner", 1, false, outline, 0, position + Vector2.one, size - Vector2.one * 2)
+	if theme(entry, "lineOutline") then
+		local outline = theme(entry, "outlineColor")
+		square(entry, "boxOuter", 1, false, outline, 0, position - Vector2.one, size + Vector2.one * 2)
+		square(entry, "boxInner", 1, false, outline, 0, position + Vector2.one, size - Vector2.one * 2)
+	end
 	square(entry, "box", 2, false, color, 0, position, size)
 end
 
@@ -781,11 +822,11 @@ local function drawSkeleton(entry, camera)
 		else
 			to = from + (motor.Part1.Position - from) * 2
 		end
-		local a = camera:WorldToViewportPoint(from)
-		local b = camera:WorldToViewportPoint(to)
-		if a.Z > 0 and b.Z > 0 and count < #BONE_KEYS then
+		local a, aFront = screen(camera, from)
+		local b, bFront = screen(camera, to)
+		if aFront and bFront and count < #BONE_KEYS then
 			count += 1
-			line(entry, BONE_KEYS[count], Vector2.new(a.X, a.Y), Vector2.new(b.X, b.Y), color)
+			line(entry, BONE_KEYS[count], a, b, color)
 		end
 	end
 end
@@ -795,19 +836,18 @@ local function drawHead(entry, camera)
 	if not head then
 		return
 	end
+	local center, inFront = screen(camera, head.Position)
+	if not inFront then
+		return
+	end
 	if option(entry, "headDot", "enabled") then
-		local center = camera:WorldToViewportPoint(head.Position)
-		local edge = camera:WorldToViewportPoint(head.Position + camera.CFrame.UpVector * head.Size.Y / 2)
-		if center.Z > 0 then
-			local radius = math.max(2, (Vector2.new(edge.X, edge.Y) - Vector2.new(center.X, center.Y)).Magnitude)
-			circle(entry, "headDot", Vector2.new(center.X, center.Y), radius, theme(entry, "headDotColor"))
-		end
+		local edge = screen(camera, head.Position + camera.CFrame.UpVector * head.Size.Y / 2)
+		circle(entry, "headDot", center, math.max(2, (edge - center).Magnitude), theme(entry, "headDotColor"))
 	end
 	if option(entry, "look", "enabled") then
-		local from = camera:WorldToViewportPoint(head.Position)
-		local to = camera:WorldToViewportPoint(head.Position + head.CFrame.LookVector * option(entry, "look", "length"))
-		if from.Z > 0 and to.Z > 0 then
-			line(entry, "look", Vector2.new(from.X, from.Y), Vector2.new(to.X, to.Y), theme(entry, "lookColor"))
+		local tip, tipFront = screen(camera, head.Position + head.CFrame.LookVector * option(entry, "look", "length"))
+		if tipFront then
+			line(entry, "look", center, tip, theme(entry, "lookColor"))
 		end
 	end
 end
@@ -832,16 +872,42 @@ local function drawArrow(entry, camera, viewport)
 	triangle(entry, "arrow", tip, tip - rotate(direction, 0.5) * size, tip - rotate(direction, -0.5) * size, theme(entry, "arrowColor"))
 end
 
-local function nameRow(entry)
-	local rich, plain = nil, nil
-	if option(entry, "name", "enabled") then
-		local name = displayName(entry)
-		rich, plain = escape(name), name
+local function drawSideBar(entry)
+	local view = entry.view
+	local minX, minY, maxY = view.minX, view.minY, view.maxY
+	local height = maxY - minY
+	if height < 2 then
+		return minX - 1
 	end
-	return rich, plain
+	local width = theme(entry, "barWidth")
+	local x = minX - theme(entry, "barGap") - width - 1
+	local item = use(entry, "healthBar", newBar, entry.esp.gui)
+	set(item, "Position", UDim2.fromOffset(x, minY - 1))
+	set(item, "Size", UDim2.fromOffset(width + 2, height + 2))
+	set(item, "BackgroundColor3", theme(entry, "outlineColor"))
+	set(item, "BackgroundTransparency", guiAlpha(entry, 0))
+	set(item, "ZIndex", 3)
+	set(item, "Visible", true)
+
+	local fill = math.round(height * view.fraction)
+	set(item.clip, "Position", UDim2.fromOffset(1, 1 + height - fill))
+	set(item.clip, "Size", UDim2.fromOffset(width, fill))
+	set(item.fill, "Position", UDim2.fromOffset(0, fill - height))
+	set(item.fill, "Size", UDim2.fromOffset(width, height))
+	set(item.fill, "BackgroundTransparency", guiAlpha(entry, 0))
+	set(item.fill, "ZIndex", 4)
+	if option(entry, "health", "gradient") then
+		set(item.gradient, "Enabled", true)
+		set(item.gradient, "Color", theme(entry, "healthColors"))
+		set(item.fill, "BackgroundColor3", Color3.new(1, 1, 1))
+	else
+		set(item.gradient, "Enabled", false)
+		set(item.fill, "BackgroundColor3", healthColor(entry, view.fraction))
+	end
+	return x
 end
 
-local function drawClassic(entry, camera)
+local function drawClassic(entry)
 	local view = entry.view
 	local minX, minY, maxX, maxY = view.minX, view.minY, view.maxX, view.maxY
 	local root = entry.esp.gui
@@ -851,32 +917,28 @@ local function drawClassic(entry, camera)
 
 	if healthShown(entry) then
 		local style = option(entry, "health", "style")
-		local fillTop = maxY - (maxY - minY) * view.fraction
-		if style ~= "number" and maxY - minY >= 2 then
-			local width = theme(entry, "barWidth")
-			local x = minX - theme(entry, "barGap") - width - 1
-			healthBar(entry, "healthBar", root, x, minY - 1, width + 2, maxY - minY + 2, 1, true, theme(entry, "outlineColor"), 0, false)
-			left = x
+		if style ~= "number" then
+			left = drawSideBar(entry)
 		end
 		if style ~= "bar" then
-			local value = healthText(entry)
-			local main, shadow, bounds = text(entry, "healthText", root, small, healthColor(entry, view.fraction), escape(value), value)
+			local main, shadow, bounds = text(entry, "healthText", root, small, healthColor(entry, view.fraction), healthText(entry))
+			local fillTop = maxY - (maxY - minY) * view.fraction
 			local y = if style == "both" then math.clamp(fillTop - bounds.Y / 2, minY, math.max(minY, maxY - bounds.Y)) else minY
 			place(entry, main, shadow, left - 2 - math.ceil(bounds.X), math.floor(y))
 		end
 	end
 
-	local rich, plain = nameRow(entry)
+	local name = option(entry, "name", "enabled") and displayName(entry)
 	local avatar = option(entry, "avatar", "enabled") and view.avatar
-	if rich or avatar then
+	if name or avatar then
 		local nameWidth, nameHeight = 0, 0
 		local main, shadow, bounds
-		if rich then
-			main, shadow, bounds = text(entry, "name", root, theme(entry, "textSize"), theme(entry, "textColor"), rich, plain)
+		if name then
+			main, shadow, bounds = text(entry, "name", root, theme(entry, "textSize"), theme(entry, "nameColor"), name)
 			nameWidth, nameHeight = math.ceil(bounds.X), math.ceil(bounds.Y)
 		end
 		local avatarSize = if avatar then theme(entry, "avatarSize") else 0
-		local avatarSpace = if avatar and rich then avatarSize + 3 else avatarSize
+		local avatarSpace = if avatar and name then avatarSize + 3 else avatarSize
 		local rowHeight = math.max(nameHeight, avatarSize)
 		local x = math.floor((minX + maxX - nameWidth - avatarSpace) / 2)
 		local top = minY - 1 - gap - rowHeight
@@ -888,19 +950,17 @@ local function drawClassic(entry, camera)
 		end
 	end
 
-	local y = maxY + 1 + gap
-	local function below(key, richValue, plainValue, color)
-		local main, shadow, bounds = text(entry, key, root, small, color, richValue, plainValue)
-		place(entry, main, shadow, math.floor((minX + maxX - bounds.X) / 2), y)
-		y += math.ceil(bounds.Y) + theme(entry, "lineSpacing")
-	end
+	local parts = freshParts(entry)
 	if option(entry, "distance", "enabled") then
-		local value = distanceText(entry)
-		below("distance", escape(value), value, theme(entry, "mutedTextColor"))
+		addPart(parts, distanceText(entry), theme(entry, "distanceColor"))
 	end
-	local list = details(entry)
-	for index = 1, #list, 2 do
-		below(DETAIL_KEYS[(index + 1) / 2], list[index], list[index + 1], theme(entry, "textColor"))
+	addDetails(entry, parts)
+	local y = maxY + 1 + gap
+	local spacing = theme(entry, "lineSpacing")
+	for index = 1, #parts, 2 do
+		local main, shadow, bounds = text(entry, DETAIL_KEYS[(index + 1) / 2], root, small, parts[index + 1], parts[index])
+		place(entry, main, shadow, math.floor((minX + maxX - bounds.X) / 2), y)
+		y += math.ceil(bounds.Y) + spacing
 	end
 end
 
@@ -908,50 +968,52 @@ local function drawPanel(entry, pill)
 	local view = entry.view
 	local showHealth = healthShown(entry)
 	local style = option(entry, "health", "style")
-	local showBar = showHealth and style ~= "number"
-	local showNumber = showHealth and style ~= "bar"
 	local showDistance = option(entry, "distance", "enabled")
 	local avatar = option(entry, "avatar", "enabled") and view.avatar
-	local rich, plain = nameRow(entry)
-	local list = if pill then nil else details(entry)
 
-	if showNumber then
-		local value = healthText(entry)
-		local separator = if rich then "  " else ""
-		rich = (rich or "") .. separator .. colored(value, healthColor(entry, view.fraction))
-		plain = (plain or "") .. separator .. value
+	if showHealth and style ~= "number" then
+		drawSideBar(entry)
 	end
-	if not (rich or showDistance or showBar or avatar or (list and #list > 0)) then
+
+	local headline = freshParts(entry)
+	if option(entry, "name", "enabled") then
+		addPart(headline, displayName(entry))
+	end
+	if showHealth and style ~= "bar" then
+		addPart(headline, healthText(entry), healthColor(entry, view.fraction))
+	end
+	local detailParts = entry.detailBuffer
+	table.clear(detailParts)
+	if not pill then
+		addDetails(entry, detailParts)
+	end
+	local hasDetails = #detailParts > 0
+	if #headline == 0 and not showDistance and not avatar and not hasDetails then
 		return
 	end
 
 	local padding = theme(entry, "panelPadding")
 	local spacing = theme(entry, "panelSpacing")
-	local barHeight = theme(entry, "panelBarHeight")
 	local panel = use(entry, "panel", newFrame, entry.esp.gui)
 	local parent = panel.object
 
 	local rowWidth, rowHeight = 0, 0
 	local nameMain, nameShadow, nameBounds
-	if rich then
-		nameMain, nameShadow, nameBounds = text(entry, "panelName", parent, theme(entry, "textSize"), theme(entry, "textColor"), rich, plain)
+	if #headline > 0 then
+		local rich, plain = join(headline, "  ")
+		nameMain, nameShadow, nameBounds = text(entry, "panelName", parent, theme(entry, "textSize"), theme(entry, "nameColor"), plain, rich)
 		rowWidth, rowHeight = nameBounds.X, nameBounds.Y
 	end
 	local distanceMain, distanceShadow, distanceBounds
 	if showDistance then
-		local value = distanceText(entry)
-		distanceMain, distanceShadow, distanceBounds = text(entry, "panelDistance", parent, theme(entry, "smallTextSize"), theme(entry, "mutedTextColor"), escape(value), value)
+		distanceMain, distanceShadow, distanceBounds = text(entry, "panelDistance", parent, theme(entry, "smallTextSize"), theme(entry, "distanceColor"), distanceText(entry))
 		rowWidth += (if rowWidth > 0 then spacing else 0) + distanceBounds.X
 		rowHeight = math.max(rowHeight, distanceBounds.Y)
 	end
 	local detailMain, detailShadow, detailBounds
-	if list and #list > 0 then
-		local richParts, plainParts = {}, {}
-		for index = 1, #list, 2 do
-			table.insert(richParts, list[index])
-			table.insert(plainParts, list[index + 1])
-		end
-		detailMain, detailShadow, detailBounds = text(entry, "panelDetails", parent, theme(entry, "smallTextSize"), theme(entry, "textColor"), table.concat(richParts, "  ·  "), table.concat(plainParts, "  ·  "))
+	if hasDetails then
+		local rich, plain = join(detailParts, "  ·  ")
+		detailMain, detailShadow, detailBounds = text(entry, "panelDetails", parent, theme(entry, "smallTextSize"), theme(entry, "nameColor"), plain, rich)
 	end
 
 	rowHeight = math.ceil(rowHeight)
@@ -959,16 +1021,13 @@ local function drawPanel(entry, pill)
 	if detailBounds then
 		blockHeight += math.ceil(detailBounds.Y) + 1
 	end
-	if showBar then
-		blockHeight += barHeight + (if blockHeight > 0 then 3 else 0)
-	end
 	local contentWidth = math.ceil(math.max(rowWidth, if detailBounds then detailBounds.X else 0))
 	local avatarSize = if avatar then math.max(theme(entry, "avatarSize"), blockHeight) else 0
 	local contentHeight = math.max(blockHeight, avatarSize)
-	local textX = padding + (if avatar then avatarSize + (if contentWidth > 0 or showBar then spacing else 0) else 0)
-	local width = math.max(if contentWidth > 0 or showBar then theme(entry, "panelMinWidth") else 0, textX + contentWidth + padding)
-	contentWidth = width - textX - padding
 	local height = padding * 2 + contentHeight
+	local endPadding = if pill then math.max(padding, math.floor(height * 0.45)) else padding
+	local textX = if avatar then padding + avatarSize + (if contentWidth > 0 then spacing else 0) else endPadding
+	local width = math.max(if contentWidth > 0 then theme(entry, "panelMinWidth") else 0, textX + contentWidth + endPadding)
 	local top = padding + math.floor((contentHeight - blockHeight) / 2)
 
 	if avatar then
@@ -979,13 +1038,10 @@ local function drawPanel(entry, pill)
 		place(entry, nameMain, nameShadow, textX, top + math.floor((rowHeight - nameBounds.Y) / 2))
 	end
 	if distanceMain then
-		place(entry, distanceMain, distanceShadow, width - padding - math.ceil(distanceBounds.X), top + rowHeight - math.ceil(distanceBounds.Y))
+		place(entry, distanceMain, distanceShadow, width - endPadding - math.ceil(distanceBounds.X), top + rowHeight - math.ceil(distanceBounds.Y))
 	end
 	if detailMain then
 		place(entry, detailMain, detailShadow, textX, top + rowHeight + 1)
-	end
-	if showBar then
-		healthBar(entry, "panelBar", parent, textX, top + blockHeight - barHeight, contentWidth, barHeight, 0, false, theme(entry, "panelBarColor"), 0, true)
 	end
 
 	set(panel, "BackgroundColor3", theme(entry, "panelColor"))
@@ -999,31 +1055,22 @@ end
 
 local function drawMinimal(entry)
 	local view = entry.view
-	local richParts, plainParts = {}, {}
-	local rich, plain = nameRow(entry)
-	if rich then
-		table.insert(richParts, rich)
-		table.insert(plainParts, plain)
+	local parts = freshParts(entry)
+	if option(entry, "name", "enabled") then
+		addPart(parts, displayName(entry), theme(entry, "nameColor"))
 	end
 	if healthShown(entry) then
-		local value = healthText(entry)
-		table.insert(richParts, colored(value, healthColor(entry, view.fraction)))
-		table.insert(plainParts, value)
+		addPart(parts, healthText(entry), healthColor(entry, view.fraction))
 	end
 	if option(entry, "distance", "enabled") then
-		local value = distanceText(entry)
-		table.insert(richParts, colored(value, theme(entry, "mutedTextColor")))
-		table.insert(plainParts, value)
+		addPart(parts, distanceText(entry), theme(entry, "distanceColor"))
 	end
-	local list = details(entry)
-	for index = 1, #list, 2 do
-		table.insert(richParts, list[index])
-		table.insert(plainParts, list[index + 1])
-	end
-	if #richParts == 0 then
+	addDetails(entry, parts)
+	if #parts == 0 then
 		return
 	end
-	local main, shadow, bounds = text(entry, "minimal", entry.esp.gui, theme(entry, "smallTextSize"), theme(entry, "textColor"), table.concat(richParts, "  "), table.concat(plainParts, "  "))
+	local rich, plain = join(parts, "  ")
+	local main, shadow, bounds = text(entry, "minimal", entry.esp.gui, theme(entry, "smallTextSize"), theme(entry, "nameColor"), plain, rich)
 	place(entry, main, shadow, math.floor((view.minX + view.maxX - bounds.X) / 2), view.minY - 1 - theme(entry, "textGap") - math.ceil(bounds.Y))
 end
 
@@ -1080,16 +1127,11 @@ local function refreshParts(entry, model)
 	return entry.parts
 end
 
-local function project(camera, point)
-	local screen = camera:WorldToViewportPoint(point)
-	return screen.X, screen.Y, screen.Z > 0
-end
-
 local function measure(entry, model, camera, pivot)
 	local view = entry.view
-	local minX, minY, maxX, maxY = math.huge, math.huge, -math.huge, -math.huge
+	local low2, high2
 	local wants3d = option(entry, "box", "enabled") and option(entry, "box", "style") == "3d"
-	local low, high
+	local low3, high3
 	local inFront = true
 	for _, part in refreshParts(entry, model) do
 		if not part.Parent then
@@ -1098,43 +1140,35 @@ local function measure(entry, model, camera, pivot)
 		local cframe, half = part.CFrame, part.Size / 2
 		for _, sign in CORNERS do
 			local world = cframe * (half * sign)
-			local x, y, front = project(camera, world)
-			if not front then
-				inFront = false
-			end
-			minX, minY = math.min(minX, x), math.min(minY, y)
-			maxX, maxY = math.max(maxX, x), math.max(maxY, y)
+			local point, front = screen(camera, world)
+			inFront = inFront and front
+			low2 = if low2 then low2:Min(point) else point
+			high2 = if high2 then high2:Max(point) else point
 			if wants3d then
 				local localPoint = pivot:PointToObjectSpace(world)
-				low = if low then low:Min(localPoint) else localPoint
-				high = if high then high:Max(localPoint) else localPoint
+				low3 = if low3 then low3:Min(localPoint) else localPoint
+				high3 = if high3 then high3:Max(localPoint) else localPoint
 			end
 		end
 	end
 
 	view.corners3d = nil
-	if minX == math.huge then
-		local x, y, front = project(camera, pivot.Position)
-		inFront = front
-		minX, minY, maxX, maxY = x, y, x, y
-	elseif wants3d and low and inFront then
+	if not low2 then
+		low2, inFront = screen(camera, pivot.Position)
+		high2 = low2
+	elseif low3 and inFront then
+		local center, extent = (low3 + high3) / 2, (high3 - low3) / 2
 		local corners = view.cornerBuffer
-		for index = 0, 7 do
-			local point = Vector3.new(
-				if bit32.band(index, 1) == 0 then low.X else high.X,
-				if bit32.band(index, 2) == 0 then low.Y else high.Y,
-				if bit32.band(index, 4) == 0 then low.Z else high.Z
-			)
-			local x, y = project(camera, pivot * point)
-			corners[index + 1] = Vector2.new(x, y)
+		for index, sign in CORNERS do
+			corners[index] = screen(camera, pivot * (center + extent * sign))
 		end
 		view.corners3d = corners
 	end
 
-	view.minX, view.minY = math.floor(minX), math.floor(minY)
-	view.maxX, view.maxY = math.ceil(maxX), math.ceil(maxY)
+	view.minX, view.minY = math.floor(low2.X), math.floor(low2.Y)
+	view.maxX, view.maxY = math.ceil(high2.X), math.ceil(high2.Y)
 	local viewport = camera.ViewportSize
-	view.onScreen = inFront and maxX >= 0 and minX <= viewport.X and maxY >= 0 and minY <= viewport.Y
+	view.onScreen = inFront and high2.X >= 0 and low2.X <= viewport.X and high2.Y >= 0 and low2.Y <= viewport.Y
 end
 
 local raycastParams = RaycastParams.new()
@@ -1172,7 +1206,7 @@ local function describe(entry, camera, origin, from, deltaTime)
 		return false
 	end
 	local view = entry.view
-	view.model, view.pivot, view.position = model, pivot, pivot.Position
+	view.model, view.position = model, pivot.Position
 	view.distance = (pivot.Position - from).Magnitude
 	if view.distance > setting(entry, "maxDistance") then
 		return false
@@ -1189,20 +1223,23 @@ local function describe(entry, camera, origin, from, deltaTime)
 		table.insert(overlays, 1, entry.group.settings.occluded)
 	end
 
-	view.name = accessors.name(target, model)
-	view.username = if target:IsA("Player") then target.Name else nil
+	view.name = tostring(accessors.name(target, model) or "")
+	view.username = if entry.isPlayer then target.Name else nil
 	view.avatar = accessors.avatar(target, model)
-	view.weapon = accessors.weapon(target, model)
-	view.teamName, view.teamColor = accessors.team(target, model)
+	local weapon = accessors.weapon(target, model)
+	view.weapon = if weapon then tostring(weapon) else nil
+	local teamName, teamColor = accessors.team(target, model)
+	view.teamName = if teamName then tostring(teamName) else nil
+	view.teamColor = if typeof(teamColor) == "Color3" then teamColor else nil
 	view.tags = accessors.tags(target, model)
 	view.health, view.maxHealth = health, maxHealth or 100
-	view.fraction, view.rawFraction = nil, nil
+	view.fraction = nil
 	if health then
 		local fraction = math.clamp(health / math.max(view.maxHealth, 1), 0, 1)
 		local shown = entry.shownHealth
 		local blend = 1 - math.exp(-theme(entry, "healthSmoothing") * deltaTime)
 		entry.shownHealth = if shown then shown + (fraction - shown) * blend else fraction
-		view.fraction, view.rawFraction = entry.shownHealth, fraction
+		view.fraction = entry.shownHealth
 	end
 
 	entry.opacity = 1
@@ -1242,6 +1279,15 @@ local function removeEntry(group, target, entry)
 	end
 end
 
+local function report(entry, problem)
+	entry.tick += 1
+	entry.shownHealth = nil
+	if not entry.reported then
+		entry.reported = true
+		warn(string.format("visuals: %s failed and is hidden until it recovers: %s", tostring(entry.target), tostring(problem)))
+	end
+end
+
 local function drawEntry(entry, camera, viewport, mouse)
 	local view = entry.view
 	if view.onScreen then
@@ -1249,7 +1295,7 @@ local function drawEntry(entry, camera, viewport, mouse)
 		drawTracer(entry, viewport, mouse)
 		drawSkeleton(entry, camera)
 		drawHead(entry, camera)
-		LAYOUTS[setting(entry, "layout")](entry, camera)
+		LAYOUTS[setting(entry, "layout")](entry)
 	elseif option(entry, "arrow", "enabled") then
 		drawArrow(entry, camera, viewport)
 	end
@@ -1278,7 +1324,9 @@ local function applyFocus(group, shown, mouse)
 end
 
 local function updateChams(esp, candidates)
-	table.sort(candidates, byDistance)
+	if #candidates > MAX_HIGHLIGHTS then
+		table.sort(candidates, byDistance)
+	end
 	for index = 1, MAX_HIGHLIGHTS do
 		local entry = candidates[index]
 		local highlight = esp.highlights[index]
@@ -1312,10 +1360,12 @@ function Group:add(target, accessors)
 		group = self,
 		esp = self.esp,
 		target = target,
+		isPlayer = target:IsA("Player"),
 		accessors = withAccessors(self.accessors, accessors),
 		elements = {},
 		overlays = {},
 		detailBuffer = {},
+		partsBuffer = {},
 		view = { cornerBuffer = {} },
 		tick = 0,
 		opacity = 1,
@@ -1402,27 +1452,17 @@ local function newGroup(esp, settings, accessors)
 end
 
 function Esp:group(settings, accessors)
-	return newGroup(self, overlay(GROUP_PRESET, settings), withAccessors(DEFAULT_ACCESSORS, accessors))
+	return newGroup(self, settings, withAccessors(DEFAULT_ACCESSORS, accessors))
 end
 
 function Esp:players(settings, accessors)
 	local base = withAccessors(DEFAULT_ACCESSORS, { variant = playerVariant })
 	local group = newGroup(self, overlay(PLAYER_PRESET, settings), withAccessors(base, accessors))
-	local function add(player)
-		if player ~= LocalPlayer then
-			group:add(player)
-		end
-	end
-	table.insert(group.connections, Players.PlayerAdded:Connect(add))
-	table.insert(group.connections, Players.PlayerRemoving:Connect(function(player)
-		local entry = group.entries[player]
-		if entry then
-			removeEntry(group, player, entry)
-		end
-	end))
-	for _, player in Players:GetPlayers() do
-		add(player)
-	end
+	group:watch(Players, {
+		filter = function(child)
+			return child:IsA("Player") and child ~= LocalPlayer
+		end,
+	})
 	return group
 end
 
@@ -1441,12 +1481,15 @@ function Esp:render(deltaTime)
 			local shown = group.shown
 			table.clear(shown)
 			for target, entry in group.entries do
-				if not target:IsA("Player") and not target.Parent then
+				if not entry.isPlayer and not target.Parent then
 					removeEntry(group, target, entry)
 					continue
 				end
 				entry.tick += 1
-				if describe(entry, camera, origin, from, deltaTime) then
+				local ok, visible = pcall(describe, entry, camera, origin, from, deltaTime)
+				if not ok then
+					report(entry, visible)
+				elseif visible then
 					table.insert(shown, entry)
 				else
 					entry.shownHealth = nil
@@ -1465,9 +1508,14 @@ function Esp:render(deltaTime)
 				group.focusedEntry = nil
 			end
 			for _, entry in shown do
-				drawEntry(entry, camera, viewport, mouse)
-				if option(entry, "chams", "enabled") then
-					table.insert(chams, entry)
+				local ok, problem = pcall(drawEntry, entry, camera, viewport, mouse)
+				if not ok then
+					report(entry, problem)
+				else
+					entry.reported = nil
+					if option(entry, "chams", "enabled") then
+						table.insert(chams, entry)
+					end
 				end
 			end
 		end
