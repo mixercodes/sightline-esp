@@ -73,8 +73,8 @@ local SETTINGS_DEFAULTS = {
 	fade = { enabled = false, start = 300, finish = 1500, minOpacity = 0.25 },
 	focus = { enabled = false, radius = 150 },
 	box = { enabled = false, style = "full", filled = false },
-	health = { enabled = false, style = "bar", format = "value", gradient = true, side = "left" },
-	name = { enabled = true, style = "display" },
+	health = { enabled = false, style = "bar", format = "value", gradient = true, side = "left", hideFull = false },
+	name = { enabled = true, style = "display", maxLength = 0 },
 	avatar = { enabled = false },
 	distance = { enabled = false, unit = "studs" },
 	weapon = { enabled = false },
@@ -84,7 +84,7 @@ local SETTINGS_DEFAULTS = {
 	skeleton = { enabled = false },
 	headDot = { enabled = false },
 	look = { enabled = false, length = 6 },
-	arrow = { enabled = false, radius = 160, size = 12 },
+	arrow = { enabled = false, placement = "circle", radius = 160, inset = 24, size = 12, maxDistance = 0, label = false },
 	chams = { enabled = false, throughWalls = true },
 	shrink = { enabled = true, badgeBeyond = 60, minimalBeyond = 120, numberBeyond = 160, detailBeyond = 200 },
 	declutter = { enabled = false, maxLift = 150, spacing = 2, leaders = false },
@@ -99,6 +99,7 @@ local CHOICES = {
 	["tracer.origin"] = { bottom = true, center = true, top = true, mouse = true },
 	["tracer.target"] = { bottom = true, center = true, top = true, head = true },
 	["health.side"] = { left = true, right = true },
+	["arrow.placement"] = { circle = true, edge = true },
 }
 local OVERLAY_KEYS = { theme = true, variants = true, occluded = true, focused = true }
 local TEAM_TINTED = {
@@ -861,17 +862,26 @@ local function avatarImage(entry, key, parent, image, xScale, x, yScale, y, size
 	set(item.corner, "CornerRadius", UDim.new(0, radius))
 end
 
+local function shorten(value, length)
+	if length <= 0 or (utf8.len(value) or #value) <= length then
+		return value
+	end
+	local cut = utf8.offset(value, length + 1)
+	return if cut then value:sub(1, cut - 1) .. "…" else value
+end
+
 local function displayName(entry)
 	local view = entry.view
 	local style = option(entry, "name", "style")
+	local length = option(entry, "name", "maxLength")
 	if view.username then
 		if style == "username" then
-			return view.username
+			return shorten(view.username, length)
 		elseif style == "both" and view.username ~= view.name then
-			return view.name .. " @" .. view.username
+			return shorten(view.name, length) .. " @" .. shorten(view.username, length)
 		end
 	end
-	return view.name
+	return shorten(view.name, length)
 end
 
 local function healthText(entry)
@@ -908,7 +918,11 @@ local function addDetails(entry, parts)
 	if option(entry, "tags", "enabled") and view.tags then
 		local color = theme(entry, "tagColor")
 		for _, tag in view.tags do
-			addPart(parts, tostring(tag), color)
+			if type(tag) == "table" then
+				addPart(parts, tostring(tag.text), if typeof(tag.color) == "Color3" then tag.color else color)
+			else
+				addPart(parts, tostring(tag), color)
+			end
 		end
 	end
 	return parts
@@ -921,7 +935,11 @@ local function freshParts(entry)
 end
 
 local function healthShown(entry)
-	return option(entry, "health", "enabled") and entry.view.fraction ~= nil
+	local view = entry.view
+	if not option(entry, "health", "enabled") or view.fraction == nil then
+		return false
+	end
+	return not (option(entry, "health", "hideFull") and view.health >= view.maxHealth)
 end
 
 local projection = { inverse = CFrame.identity, centerX = 0, centerY = 0, scale = 1, viewport = Vector2.zero }
@@ -1311,7 +1329,37 @@ local function rotate(vector, angle)
 	return Vector2.new(vector.X * cos - vector.Y * sin, vector.X * sin + vector.Y * cos)
 end
 
+local function arrowLabel(entry, tip, base, direction, edge)
+	local parts = freshParts(entry)
+	local view = entry.view
+	if option(entry, "name", "enabled") then
+		addPart(parts, displayName(entry), theme(entry, "nameColor"))
+	end
+	if healthShown(entry) then
+		addPart(parts, healthText(entry), healthColor(entry, view.fraction))
+	end
+	if option(entry, "distance", "enabled") then
+		addPart(parts, distanceText(entry), theme(entry, "distanceColor"))
+	end
+	addDetails(entry, parts)
+	if #parts == 0 then
+		return
+	end
+	local rich, plain = join(parts, " · ")
+	local main, shadow = text(entry, "arrowLabel", entry.esp.gui, theme(entry, "smallTextSize"), theme(entry, "nameColor"), plain, rich)
+	local gap = theme(entry, "textGap")
+	local point = if edge then base - direction * gap else tip + direction * gap
+	local side = if edge then 1 else -1
+	local anchorX = 0.5 + side * math.clamp(direction.X * 2, -1, 1) / 2
+	local anchorY = 0.5 + side * math.clamp(direction.Y * 2, -1, 1) / 2
+	pinText(entry, main, shadow, 0, math.round(point.X), 0, math.round(point.Y), anchorX, anchorY)
+end
+
 local function drawArrow(entry, camera, viewport)
+	local maxDistance = option(entry, "arrow", "maxDistance")
+	if maxDistance > 0 and entry.view.distance > maxDistance then
+		return
+	end
 	local cframe = camera.CFrame
 	local flat = CFrame.fromMatrix(cframe.Position, cframe.RightVector, Vector3.yAxis)
 	local relative = flat:PointToObjectSpace(entry.view.position)
@@ -1320,10 +1368,22 @@ local function drawArrow(entry, camera, viewport)
 		return
 	end
 	direction = direction.Unit
-	local radius = math.min(option(entry, "arrow", "radius"), viewport.Y / 2 - 20)
 	local size = option(entry, "arrow", "size")
-	local tip = viewport / 2 + direction * radius
+	local center = viewport / 2
+	local edge = option(entry, "arrow", "placement") == "edge"
+	local tip
+	if edge then
+		local inset = option(entry, "arrow", "inset")
+		local reachX = if math.abs(direction.X) > 1e-3 then (center.X - inset) / math.abs(direction.X) else math.huge
+		local reachY = if math.abs(direction.Y) > 1e-3 then (center.Y - inset) / math.abs(direction.Y) else math.huge
+		tip = center + direction * math.max(math.min(reachX, reachY), 0)
+	else
+		tip = center + direction * math.min(option(entry, "arrow", "radius"), center.Y - 20)
+	end
 	triangle(entry, "arrow", snap(tip), snap(tip - rotate(direction, 0.5) * size), snap(tip - rotate(direction, -0.5) * size), "arrow")
+	if option(entry, "arrow", "label") then
+		arrowLabel(entry, tip, tip - direction * size, direction, edge)
+	end
 end
 
 local function drawSideBar(entry)

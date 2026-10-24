@@ -50,8 +50,8 @@ esp:unload()
 | `fade` | off, `start 300`, `finish 1500`, `minOpacity 0.25` | fades everything with distance |
 | `focus` | off, `radius 150` | the target nearest the mouse gets the `focused` overlay |
 | `box` | off, `style "full"`, `filled false` | styles: `full`, `corners`, `3d` |
-| `health` | off, `style "bar"`, `format "value"`, `gradient true`, `side "left"` | `bar`, `number`, or `both` for the bar and the number together; formats: `value`, `percent`, `fraction`; side: `left`, `right` |
-| `name` | on, `style "display"` | `display`, `username`, `both` |
+| `health` | off, `style "bar"`, `format "value"`, `gradient true`, `side "left"`, `hideFull false` | `bar`, `number`, or `both` for the bar and the number together; formats: `value`, `percent`, `fraction`; side: `left`, `right`; `hideFull` hides it until the target takes damage |
+| `name` | on, `style "display"`, `maxLength 0` | `display`, `username`, `both`; `maxLength` cuts long names with an ellipsis, 0 for no limit |
 | `avatar` | off | headshot next to the name |
 | `distance` | off, `unit "studs"` | `studs`, `meters` |
 | `weapon`, `team`, `tags` | off | extra lines (classic) or a details row (card) |
@@ -59,7 +59,7 @@ esp:unload()
 | `skeleton` | off | any avatar with a Humanoid: limbs come from `Humanoid:GetLimb` and joints from Motor6Ds or AnimationConstraints, so R6, R15, Rthro, scaled and custom bodies all get a head line, spine, shoulder and hip bars and straight limbs; other rigs fall back to their joint chain |
 | `headDot` | off | |
 | `look` | off, `length 6` | line along the head's look direction |
-| `arrow` | off, `radius 160`, `size 12` | points at targets that are off screen or behind you |
+| `arrow` | off, `placement "circle"`, `radius 160`, `inset 24`, `size 12`, `maxDistance 0`, `label false` | points at targets that are off screen or behind you; `circle` keeps arrows `radius` pixels from the centre, `edge` puts them `inset` pixels inside the screen edge; `maxDistance` limits arrows to nearer targets (0 for all); `label` writes the target's name, health, distance and details beside its arrow, following the same settings as the on-screen text |
 | `chams` | off, `throughWalls true` | Highlight fill and outline, shared pool of 31 for the nearest targets |
 | `declutter` | off, `maxLift 150`, `spacing 2`, `leaders false` | labels are placed nearest-first and overlapping ones step up (at most `maxLift` pixels); `leaders` adds a line from each moved label back to its box |
 | `shrink` | on, `badgeBeyond 60`, `minimalBeyond 120`, `numberBeyond 160`, `detailBeyond 200` | studs from your HumanoidRootPart: cards become badges, panels become minimal, classic drops its health number, and the skeleton, head dot and look line stop drawing as targets get far away |
@@ -114,7 +114,7 @@ Each takes `(target, model)` and falls back to a default when left out.
 | `avatar` | player headshot (`rbxthumb://`), nil otherwise |
 | `weapon` | name of the held Tool |
 | `team` | team name and colour |
-| `tags` | `{ "Friend" }` for friends |
+| `tags` | `{ "Friend" }` for friends; entries are strings or `{ text = "Boss", color = Color3 }` |
 | `variant` | nil (players: `"teammate"` on your team) |
 | `parts` | body parts for rigs, every visible part for other models, the part itself for a part |
 
