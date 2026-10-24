@@ -4,13 +4,17 @@ ESP for players, NPCs, items and anything else in the world, built to one house 
 
 ## Loading
 
-Put `sightline.luau` in the executor's workspace folder (on umbra that is `~/.local/share/umbra/shared/`), then:
+Load a pinned commit so an update never changes a script under you:
 
 ```luau
-local Sightline = loadstring(readfile("sightline.luau"), "sightline")()
+local Sightline = loadstring(game:HttpGet("https://raw.githubusercontent.com/mixercodes/sightline-esp/a43b71b318637169526856de6999c009c49d65b4/sightline.luau"), "sightline")()
 ```
 
-`test.luau` spawns six dummies (one per layout) and a crate in front of you and turns on every feature for players. Stop it with `getgenv().SightlineTest.stop()`.
+Swap the hash for a newer commit when you want to update. For local development, put `sightline.luau` in the executor's workspace folder and load it with `readfile("sightline.luau")` instead.
+
+Needs the standard executor functions `Drawing`, `getgenv` and `loadstring` (plus `game:HttpGet` for the pinned loader). `cloneref` and `gethui` are used when present.
+
+`test.luau` spawns six dummies (one per layout) and a crate in front of you and turns on every feature for players. Run it with `sightline.luau` in the workspace folder, and stop it with `getgenv().SightlineTest.stop()`.
 
 ## API
 
