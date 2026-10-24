@@ -63,6 +63,7 @@ esp:unload()
 | `look` | off, `length 6` | line along the head's look direction |
 | `arrow` | off, `radius 160`, `size 12` | points at targets that are off screen or behind you |
 | `chams` | off, `throughWalls true` | Highlight fill and outline, shared pool of 31 for the nearest targets |
+| `declutter` | on, `maxLift 150`, `spacing 2` | labels are placed nearest-first and overlapping ones step up (at most `maxLift` pixels) with a leader line back to their box |
 | `shrink` | on, `badgeBeyond 60`, `minimalBeyond 120`, `numberBeyond 160` | studs from your HumanoidRootPart: cards become badges, panels become minimal, and classic drops its health number as targets get far away |
 
 `esp:players` also turns on box and health.
@@ -130,13 +131,15 @@ Every line-type element (`box`, `tracer`, `skeleton`, `headDot`, `look`, `arrow`
 | Text | `font`, `textSize`, `smallTextSize`, `nameColor`, `distanceColor`, `weaponColor`, `tagColor`, `textShadow`, `shadowColor`, `shadowTransparency`, `shadowOffset` |
 | Outlines | `outlineColor`, `lineOutlineWidth` (black edge width on each side of lines, rings and arrows; fractional values work) |
 | Box | `boxColor`, `boxThickness`, `boxOutline`, `boxTransparency`, `boxFillColor`, `boxFillTransparency`, `cornerLength` |
-| Lines | `tracer…`, `skeleton…`, `look…`, `arrow…` (Color, Thickness, Outline, Transparency) |
+| Lines | `tracer…`, `skeleton…`, `look…`, `arrow…`, `leader…` (Color, Thickness, Outline, Transparency) |
 | Head dot | `headDotColor`, `headDotThickness`, `headDotOutline`, `headDotTransparency`, `headDotFilled` |
 | Chams | `chamsFillColor`, `chamsFillTransparency`, `chamsOutlineColor`, `chamsOutlineTransparency` |
 | Health | `healthColors`, `healthSmoothing`, `barWidth`, `barGap`, `barOutline`, `barBackgroundColor`, `barBackgroundTransparency` |
 | Spacing | `textGap`, `lineSpacing` |
 | Avatar | `avatarSize`, `avatarCornerRadius`, `avatarBackgroundColor`, `avatarBackgroundTransparency` |
 | Panels | `panelColor`, `panelTransparency`, `panelCornerRadius`, `panelPadding`, `panelSpacing`, `panelMinWidth`, `panelStrokeColor`, `panelStrokeTransparency`, `panelStrokeThickness` |
+
+Everything a target draws is layered by distance from your HumanoidRootPart, nearest on top, and two targets only swap layers when one is at least 2 studs closer, so close targets never flicker over each other.
 
 A theme value resolves from the overlays, then the team colour (with `useTeamColor`), then the group, then `esp.theme`. Values are type-checked, so `boxColor = "red"` errors.
 

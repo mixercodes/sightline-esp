@@ -53,11 +53,13 @@ local THEME_DEFAULTS = {
 	panelStrokeTransparency = 1,
 	panelStrokeThickness = 1,
 }
-for feature, outlined in { box = true, tracer = true, skeleton = false, headDot = true, look = true, arrow = true } do
+for feature, outlined in { box = true, tracer = true, skeleton = false, headDot = true, look = true, arrow = true, leader = false } do
 	THEME_DEFAULTS[feature .. "Thickness"] = 1
 	THEME_DEFAULTS[feature .. "Outline"] = outlined
 	THEME_DEFAULTS[feature .. "Transparency"] = 0
 end
+THEME_DEFAULTS.leaderColor = Color3.fromRGB(200, 200, 210)
+THEME_DEFAULTS.leaderTransparency = 0.4
 local SETTINGS_DEFAULTS = {
 	enabled = true,
 	layout = "classic",
@@ -82,6 +84,7 @@ local SETTINGS_DEFAULTS = {
 	arrow = { enabled = false, radius = 160, size = 12 },
 	chams = { enabled = false, throughWalls = true },
 	shrink = { enabled = true, badgeBeyond = 60, minimalBeyond = 120, numberBeyond = 160 },
+	declutter = { enabled = true, maxLift = 150, spacing = 2 },
 }
 local CHOICES = {
 	layout = { classic = true, card = true, badge = true, minimal = true },
@@ -104,6 +107,8 @@ local HEADSHOT = "rbxthumb://type=AvatarHeadShot&id=%d&w=60&h=60"
 local FRIEND_TAGS = { "Friend" }
 local STUDS_TO_METERS = 0.28
 local MAX_HIGHLIGHTS = 31
+local ORDER_MARGIN = 2
+local Z_STEP = 8
 local PARTS_REFRESH = 0.5
 local VISIBILITY_INTERVAL = 0.1
 local SESSION_KEY = "SightlineSession"
@@ -555,6 +560,7 @@ end
 
 local function square(entry, key, zIndex, filled, color, transparency, position, size)
 	local item = use(entry, key, newDrawing, "Square", zIndex, filled)
+	set(item, "ZIndex", entry.zBase + zIndex)
 	set(item, "Color", color)
 	set(item, "Transparency", drawingAlpha(entry, transparency))
 	set(item, "Thickness", 1)
@@ -564,7 +570,7 @@ local function square(entry, key, zIndex, filled, color, transparency, position,
 end
 
 local STYLE_KEYS = {}
-for _, feature in { "box", "tracer", "skeleton", "headDot", "look", "arrow" } do
+for _, feature in { "box", "tracer", "skeleton", "headDot", "look", "arrow", "leader" } do
 	STYLE_KEYS[feature] = {
 		color = feature .. "Color",
 		thickness = feature .. "Thickness",
@@ -600,6 +606,7 @@ local function line(entry, key, from, to, feature)
 	if style.outlined then
 		local reach = direction * (thickness / 2 + style.outlineWidth)
 		local border = use(entry, key .. "Border", newDrawing, "Line", 1)
+		set(border, "ZIndex", entry.zBase + 1)
 		set(border, "From", from - reach)
 		set(border, "To", to + reach)
 		set(border, "Color", style.outlineColor)
@@ -609,6 +616,7 @@ local function line(entry, key, from, to, feature)
 	end
 	local reach = direction * (thickness / 2)
 	local main = use(entry, key, newDrawing, "Line", 2)
+	set(main, "ZIndex", entry.zBase + 2)
 	set(main, "From", from - reach)
 	set(main, "To", to + reach)
 	set(main, "Color", style.color)
@@ -619,6 +627,7 @@ end
 
 local function ring(entry, key, center, radius, color, thickness, alpha, zIndex)
 	local item = use(entry, key, newDrawing, "Circle", zIndex, false)
+	set(item, "ZIndex", entry.zBase + zIndex)
 	set(item, "Position", center)
 	set(item, "Radius", radius)
 	set(item, "NumSides", 32)
@@ -660,6 +669,7 @@ local function triangle(entry, key, a, b, c, feature)
 	if style.outlined then
 		local outerA, outerB, outerC = grow(a, b, c, style.outlineWidth)
 		local border = use(entry, key .. "Border", newDrawing, "Triangle", 1, true)
+		set(border, "ZIndex", entry.zBase + 1)
 		set(border, "PointA", outerA)
 		set(border, "PointB", outerB)
 		set(border, "PointC", outerC)
@@ -668,6 +678,7 @@ local function triangle(entry, key, a, b, c, feature)
 		set(border, "Visible", true)
 	end
 	local main = use(entry, key, newDrawing, "Triangle", 2, true)
+	set(main, "ZIndex", entry.zBase + 2)
 	set(main, "PointA", a)
 	set(main, "PointB", b)
 	set(main, "PointC", c)
@@ -682,7 +693,7 @@ local function styleLabel(entry, item, value, size, color, transparency, zIndex)
 	set(item, "TextSize", size)
 	set(item, "TextColor3", color)
 	set(item, "TextTransparency", guiAlpha(entry, transparency))
-	set(item, "ZIndex", zIndex)
+	set(item, "ZIndex", entry.zBase + zIndex)
 	set(item, "Visible", true)
 end
 
@@ -725,7 +736,7 @@ local function avatarImage(entry, key, parent, image, x, y, size, radius)
 	set(item, "BackgroundTransparency", guiAlpha(entry, theme(entry, "avatarBackgroundTransparency")))
 	set(item, "Position", UDim2.fromOffset(x, y))
 	set(item, "Size", UDim2.fromOffset(size, size))
-	set(item, "ZIndex", 4)
+	set(item, "ZIndex", entry.zBase + 4)
 	set(item, "Visible", true)
 	set(item.corner, "CornerRadius", UDim.new(0, radius))
 end
@@ -1094,7 +1105,7 @@ local function drawSideBar(entry)
 	set(item, "Size", UDim2.fromOffset(width + border * 2, height + border * 2))
 	set(item, "BackgroundColor3", theme(entry, "outlineColor"))
 	set(item, "BackgroundTransparency", guiAlpha(entry, if border > 0 then 0 else 1))
-	set(item, "ZIndex", 3)
+	set(item, "ZIndex", entry.zBase + 3)
 	set(item, "Visible", true)
 	set(item.back, "Position", UDim2.fromOffset(border, border))
 	set(item.back, "Size", UDim2.fromOffset(width, height))
@@ -1116,6 +1127,44 @@ local function drawSideBar(entry)
 		set(item.fill, "BackgroundColor3", healthColor(entry, view.fraction))
 	end
 	return if onRight then x + width + border * 2 else x
+end
+
+local function overlaps(a, x, y, width, height, spacing)
+	return x < a.x + a.width + spacing and a.x < x + width + spacing and y < a.y + a.height + spacing and a.y < y + height + spacing
+end
+
+local function claim(entry, x, y, width, height)
+	if not option(entry, "declutter", "enabled") then
+		return y
+	end
+	local claims = entry.esp.claims
+	local spacing = option(entry, "declutter", "spacing")
+	local lowest = y - option(entry, "declutter", "maxLift")
+	local placed = y
+	for _ = 1, #claims + 1 do
+		local blocker
+		for _, other in claims do
+			if overlaps(other, x, placed, width, height, spacing) then
+				blocker = other
+				break
+			end
+		end
+		if not blocker then
+			break
+		end
+		placed = blocker.y - height - spacing
+		if placed < lowest then
+			placed = y
+			break
+		end
+	end
+	table.insert(claims, { x = x, y = placed, width = width, height = height })
+	if placed < y - 1 then
+		local view = entry.view
+		local centerX = math.floor((view.minX + view.maxX) / 2)
+		line(entry, "leader", Vector2.new(x + width / 2, placed + height), Vector2.new(centerX, view.minY - 1), "leader")
+	end
+	return placed
 end
 
 local function drawClassic(entry)
@@ -1155,7 +1204,7 @@ local function drawClassic(entry)
 		local avatarSpace = if avatar and name then avatarSize + 3 else avatarSize
 		local rowHeight = math.max(nameHeight, avatarSize)
 		local x = math.floor((minX + maxX - nameWidth - avatarSpace) / 2)
-		local top = minY - 1 - gap - rowHeight
+		local top = claim(entry, x, minY - 1 - gap - rowHeight, nameWidth + avatarSpace, rowHeight)
 		if avatar then
 			avatarImage(entry, "avatar", root, avatar, x, top + math.floor((rowHeight - avatarSize) / 2), avatarSize, theme(entry, "avatarCornerRadius"))
 		end
@@ -1266,8 +1315,10 @@ local function drawPanel(entry, pill)
 	set(panel, "BackgroundColor3", theme(entry, "panelColor"))
 	set(panel, "BackgroundTransparency", guiAlpha(entry, theme(entry, "panelTransparency")))
 	set(panel, "Size", UDim2.fromOffset(width, height))
-	set(panel, "Position", UDim2.fromOffset(math.floor((view.minX + view.maxX - width) / 2), view.minY - 1 - theme(entry, "textGap") - height))
-	set(panel, "ZIndex", 2 + math.max(0, 100000 - math.floor(view.distance)))
+	local panelX = math.floor((view.minX + view.maxX - width) / 2)
+	local panelY = claim(entry, panelX, view.minY - 1 - theme(entry, "textGap") - height, width, height)
+	set(panel, "Position", UDim2.fromOffset(panelX, panelY))
+	set(panel, "ZIndex", entry.zBase + 2)
 	set(panel, "Visible", true)
 	set(panel.corner, "CornerRadius", UDim.new(0, if pill then math.floor(height / 2) else theme(entry, "panelCornerRadius")))
 	set(panel.stroke, "Color", theme(entry, "panelStrokeColor"))
@@ -1306,7 +1357,7 @@ local function drawMinimal(entry)
 	end
 
 	local x = math.floor((view.minX + view.maxX - width) / 2)
-	local bottom = view.minY - 1 - theme(entry, "textGap")
+	local bottom = claim(entry, x, view.minY - 1 - theme(entry, "textGap") - height, width, height) + height
 	if nameMain then
 		place(entry, nameMain, nameShadow, x, bottom - math.ceil(nameBounds.Y))
 		x += math.ceil(nameBounds.X) + theme(entry, "panelSpacing")
@@ -1627,6 +1678,46 @@ local function applyFocus(group, shown, mouse)
 	group.focusedEntry = best
 end
 
+local function orderShown(esp)
+	esp.frame += 1
+	local frame = esp.frame
+	for _, group in esp.groups do
+		for _, entry in group.shown do
+			entry.shownFrame = frame
+		end
+	end
+	local order, kept = esp.order, 0
+	for index = 1, #order do
+		local entry = order[index]
+		order[index] = nil
+		if entry.shownFrame == frame and not entry.ordered then
+			kept += 1
+			order[kept] = entry
+			entry.ordered = true
+		end
+	end
+	for _, group in esp.groups do
+		for _, entry in group.shown do
+			if not entry.ordered then
+				kept += 1
+				order[kept] = entry
+			end
+			entry.ordered = nil
+		end
+	end
+	for index = 2, kept do
+		local position = index
+		while position > 1 and order[position].view.distance < order[position - 1].view.distance - ORDER_MARGIN do
+			order[position], order[position - 1] = order[position - 1], order[position]
+			position -= 1
+		end
+	end
+	for index, entry in order do
+		entry.zBase = (kept - index) * Z_STEP
+	end
+	return order
+end
+
 local function updateChams(esp, candidates)
 	if #candidates > MAX_HIGHLIGHTS then
 		table.sort(candidates, byDistance)
@@ -1677,6 +1768,7 @@ function Group:add(target, accessors)
 		styles = {},
 		view = { cornerBuffer = {} },
 		tick = 0,
+		zBase = 0,
 		opacity = 1,
 		partsAt = -math.huge,
 		rayAt = -math.huge,
@@ -1817,15 +1909,18 @@ function Esp:render(deltaTime)
 			else
 				group.focusedEntry = nil
 			end
-			for _, entry in shown do
-				local ok, problem = pcall(drawEntry, entry, camera, viewport, mouse)
-				if not ok then
-					report(entry, problem)
-				else
-					entry.reported = nil
-					if option(entry, "chams", "enabled") then
-						table.insert(chams, entry)
-					end
+		end
+
+		local order = orderShown(self)
+		table.clear(self.claims)
+		for _, entry in order do
+			local ok, problem = pcall(drawEntry, entry, camera, viewport, mouse)
+			if not ok then
+				report(entry, problem)
+			else
+				entry.reported = nil
+				if option(entry, "chams", "enabled") then
+					table.insert(chams, entry)
 				end
 			end
 		end
@@ -1879,6 +1974,9 @@ function Sightline.start(themeOverrides)
 		groups = {},
 		highlights = {},
 		chamsBuffer = {},
+		order = {},
+		claims = {},
+		frame = 0,
 		stepName = tostring(math.random(1e6, 1e7)),
 	}, Esp)
 	RunService:BindToRenderStep(esp.stepName, Enum.RenderPriority.Camera.Value + 1, function(deltaTime)
