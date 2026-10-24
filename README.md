@@ -7,7 +7,7 @@ ESP for players, NPCs, items and anything else in the world, built to one house 
 Load a pinned commit so an update never changes a script under you:
 
 ```luau
-local Sightline = loadstring(game:HttpGet("https://raw.githubusercontent.com/mixercodes/sightline-esp/a43b71b318637169526856de6999c009c49d65b4/sightline.luau"), "sightline")()
+local Sightline = loadstring(game:HttpGet("https://raw.githubusercontent.com/mixercodes/sightline-esp/de958a795a2e35b4da7445aac47559765775f9ce/sightline.luau"), "sightline")()
 ```
 
 Swap the hash for a newer commit when you want to update. For local development, put `sightline.luau` in the executor's workspace folder and load it with `readfile("sightline.luau")` instead.
