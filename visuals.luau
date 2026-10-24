@@ -13,8 +13,8 @@ local THEME_DEFAULTS = {
 	lineThickness = 1,
 	lineOutline = true,
 	boxColor = Color3.new(1, 1, 1),
-	boxFillColor = Color3.new(1, 1, 1),
-	boxFillTransparency = 0.85,
+	boxFillColor = Color3.new(0, 0, 0),
+	boxFillTransparency = 0.8,
 	cornerLength = 0.25,
 	tracerColor = Color3.new(1, 1, 1),
 	skeletonColor = Color3.new(1, 1, 1),
@@ -26,9 +26,9 @@ local THEME_DEFAULTS = {
 	chamsOutlineColor = Color3.new(1, 1, 1),
 	chamsOutlineTransparency = 0,
 	healthColors = ColorSequence.new({
-		ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 0, 0)),
-		ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 255, 0)),
-		ColorSequenceKeypoint.new(1, Color3.fromRGB(0, 255, 0)),
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 84, 84)),
+		ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 206, 72)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(92, 230, 120)),
 	}),
 	healthSmoothing = 10,
 	barWidth = 1,
@@ -41,7 +41,7 @@ local THEME_DEFAULTS = {
 	avatarBackgroundTransparency = 0.3,
 	panelColor = Color3.fromRGB(16, 16, 20),
 	panelTransparency = 0.15,
-	panelCornerRadius = 6,
+	panelCornerRadius = 9,
 	panelPadding = 5,
 	panelSpacing = 6,
 	panelMinWidth = 48,
@@ -69,6 +69,7 @@ local SETTINGS_DEFAULTS = {
 	look = { enabled = false, length = 6 },
 	arrow = { enabled = false, radius = 160, size = 12 },
 	chams = { enabled = false, throughWalls = true },
+	shrink = { enabled = true, badgeBelow = 60, minimalBelow = 32, numberBelow = 24 },
 }
 local CHOICES = {
 	layout = { classic = true, card = true, badge = true, minimal = true },
@@ -842,7 +843,10 @@ local function drawHead(entry, camera)
 	end
 	if option(entry, "headDot", "enabled") then
 		local edge = screen(camera, head.Position + camera.CFrame.UpVector * head.Size.Y / 2)
-		circle(entry, "headDot", center, math.max(2, (edge - center).Magnitude), theme(entry, "headDotColor"))
+		local radius = (edge - center).Magnitude
+		if radius >= 4 then
+			circle(entry, "headDot", center, radius, theme(entry, "headDotColor"))
+		end
 	end
 	if option(entry, "look", "enabled") then
 		local tip, tipFront = screen(camera, head.Position + head.CFrame.LookVector * option(entry, "look", "length"))
@@ -920,11 +924,12 @@ local function drawClassic(entry)
 		if style ~= "number" then
 			left = drawSideBar(entry)
 		end
-		if style ~= "bar" then
+		local tooSmall = option(entry, "shrink", "enabled") and maxY - minY < option(entry, "shrink", "numberBelow")
+		if style ~= "bar" and not tooSmall then
 			local main, shadow, bounds = text(entry, "healthText", root, small, healthColor(entry, view.fraction), healthText(entry))
 			local fillTop = maxY - (maxY - minY) * view.fraction
 			local y = if style == "both" then math.clamp(fillTop - bounds.Y / 2, minY, math.max(minY, maxY - bounds.Y)) else minY
-			place(entry, main, shadow, left - 2 - math.ceil(bounds.X), math.floor(y))
+			place(entry, main, shadow, left - theme(entry, "textGap") - math.ceil(bounds.X), math.floor(y))
 		end
 	end
 
@@ -968,10 +973,11 @@ local function drawPanel(entry, pill)
 	local view = entry.view
 	local showHealth = healthShown(entry)
 	local style = option(entry, "health", "style")
+	local barBeside = showHealth and style ~= "number" and option(entry, "box", "enabled")
+	local showNumber = showHealth and (style ~= "bar" or not barBeside)
 	local showDistance = option(entry, "distance", "enabled")
 	local avatar = option(entry, "avatar", "enabled") and view.avatar
-
-	if showHealth and style ~= "number" then
+	if barBeside then
 		drawSideBar(entry)
 	end
 
@@ -979,21 +985,25 @@ local function drawPanel(entry, pill)
 	if option(entry, "name", "enabled") then
 		addPart(headline, displayName(entry))
 	end
-	if showHealth and style ~= "bar" then
-		addPart(headline, healthText(entry), healthColor(entry, view.fraction))
+	local stats = entry.detailBuffer
+	table.clear(stats)
+	if showNumber then
+		addPart(if pill then headline else stats, healthText(entry), healthColor(entry, view.fraction))
 	end
-	local detailParts = entry.detailBuffer
-	table.clear(detailParts)
 	if not pill then
-		addDetails(entry, detailParts)
+		if showDistance then
+			addPart(stats, distanceText(entry), theme(entry, "distanceColor"))
+		end
+		addDetails(entry, stats)
 	end
-	local hasDetails = #detailParts > 0
-	if #headline == 0 and not showDistance and not avatar and not hasDetails then
+	local showSideDistance = pill and showDistance
+	if #headline == 0 and #stats == 0 and not showSideDistance and not avatar then
 		return
 	end
 
 	local padding = theme(entry, "panelPadding")
 	local spacing = theme(entry, "panelSpacing")
+	local small = theme(entry, "smallTextSize")
 	local panel = use(entry, "panel", newFrame, entry.esp.gui)
 	local parent = panel.object
 
@@ -1005,23 +1015,23 @@ local function drawPanel(entry, pill)
 		rowWidth, rowHeight = nameBounds.X, nameBounds.Y
 	end
 	local distanceMain, distanceShadow, distanceBounds
-	if showDistance then
-		distanceMain, distanceShadow, distanceBounds = text(entry, "panelDistance", parent, theme(entry, "smallTextSize"), theme(entry, "distanceColor"), distanceText(entry))
+	if showSideDistance then
+		distanceMain, distanceShadow, distanceBounds = text(entry, "panelDistance", parent, small, theme(entry, "distanceColor"), distanceText(entry))
 		rowWidth += (if rowWidth > 0 then spacing else 0) + distanceBounds.X
 		rowHeight = math.max(rowHeight, distanceBounds.Y)
 	end
-	local detailMain, detailShadow, detailBounds
-	if hasDetails then
-		local rich, plain = join(detailParts, "  ·  ")
-		detailMain, detailShadow, detailBounds = text(entry, "panelDetails", parent, theme(entry, "smallTextSize"), theme(entry, "nameColor"), plain, rich)
+	local statsMain, statsShadow, statsBounds
+	if #stats > 0 then
+		local rich, plain = join(stats, "  ·  ")
+		statsMain, statsShadow, statsBounds = text(entry, "panelDetails", parent, small, theme(entry, "nameColor"), plain, rich)
 	end
 
 	rowHeight = math.ceil(rowHeight)
 	local blockHeight = rowHeight
-	if detailBounds then
-		blockHeight += math.ceil(detailBounds.Y) + 1
+	if statsBounds then
+		blockHeight += (if rowHeight > 0 then 1 else 0) + math.ceil(statsBounds.Y)
 	end
-	local contentWidth = math.ceil(math.max(rowWidth, if detailBounds then detailBounds.X else 0))
+	local contentWidth = math.ceil(math.max(rowWidth, if statsBounds then statsBounds.X else 0))
 	local avatarSize = if avatar then math.max(theme(entry, "avatarSize"), blockHeight) else 0
 	local contentHeight = math.max(blockHeight, avatarSize)
 	local height = padding * 2 + contentHeight
@@ -1040,25 +1050,23 @@ local function drawPanel(entry, pill)
 	if distanceMain then
 		place(entry, distanceMain, distanceShadow, width - endPadding - math.ceil(distanceBounds.X), top + rowHeight - math.ceil(distanceBounds.Y))
 	end
-	if detailMain then
-		place(entry, detailMain, detailShadow, textX, top + rowHeight + 1)
+	if statsMain then
+		place(entry, statsMain, statsShadow, textX, top + blockHeight - math.ceil(statsBounds.Y))
 	end
 
 	set(panel, "BackgroundColor3", theme(entry, "panelColor"))
 	set(panel, "BackgroundTransparency", guiAlpha(entry, theme(entry, "panelTransparency")))
 	set(panel, "Size", UDim2.fromOffset(width, height))
 	set(panel, "Position", UDim2.fromOffset(math.floor((view.minX + view.maxX - width) / 2), view.minY - 1 - theme(entry, "textGap") - height))
-	set(panel, "ZIndex", 2)
+	set(panel, "ZIndex", 2 + math.max(0, 100000 - math.floor(view.distance)))
 	set(panel, "Visible", true)
 	set(panel.corner, "CornerRadius", UDim.new(0, if pill then math.floor(height / 2) else theme(entry, "panelCornerRadius")))
 end
 
 local function drawMinimal(entry)
 	local view = entry.view
+	local name = option(entry, "name", "enabled") and displayName(entry)
 	local parts = freshParts(entry)
-	if option(entry, "name", "enabled") then
-		addPart(parts, displayName(entry), theme(entry, "nameColor"))
-	end
 	if healthShown(entry) then
 		addPart(parts, healthText(entry), healthColor(entry, view.fraction))
 	end
@@ -1066,12 +1074,34 @@ local function drawMinimal(entry)
 		addPart(parts, distanceText(entry), theme(entry, "distanceColor"))
 	end
 	addDetails(entry, parts)
-	if #parts == 0 then
+	if not name and #parts == 0 then
 		return
 	end
-	local rich, plain = join(parts, "  ")
-	local main, shadow, bounds = text(entry, "minimal", entry.esp.gui, theme(entry, "smallTextSize"), theme(entry, "nameColor"), plain, rich)
-	place(entry, main, shadow, math.floor((view.minX + view.maxX - bounds.X) / 2), view.minY - 1 - theme(entry, "textGap") - math.ceil(bounds.Y))
+
+	local root = entry.esp.gui
+	local nameMain, nameShadow, nameBounds
+	local width, height = 0, 0
+	if name then
+		nameMain, nameShadow, nameBounds = text(entry, "minimalName", root, theme(entry, "textSize"), theme(entry, "nameColor"), name)
+		width, height = math.ceil(nameBounds.X), math.ceil(nameBounds.Y)
+	end
+	local statsMain, statsShadow, statsBounds
+	if #parts > 0 then
+		local rich, plain = join(parts, "  ")
+		statsMain, statsShadow, statsBounds = text(entry, "minimal", root, theme(entry, "smallTextSize"), theme(entry, "nameColor"), plain, rich)
+		width += (if name then theme(entry, "panelSpacing") else 0) + math.ceil(statsBounds.X)
+		height = math.max(height, math.ceil(statsBounds.Y))
+	end
+
+	local x = math.floor((view.minX + view.maxX - width) / 2)
+	local bottom = view.minY - 1 - theme(entry, "textGap")
+	if nameMain then
+		place(entry, nameMain, nameShadow, x, bottom - math.ceil(nameBounds.Y))
+		x += math.ceil(nameBounds.X) + theme(entry, "panelSpacing")
+	end
+	if statsMain then
+		place(entry, statsMain, statsShadow, x, bottom - math.ceil(statsBounds.Y) - (if nameMain then 1 else 0))
+	end
 end
 
 local LAYOUTS = {
@@ -1288,6 +1318,20 @@ local function report(entry, problem)
 	end
 end
 
+local function effectiveLayout(entry)
+	local layout = setting(entry, "layout")
+	if layout == "classic" or layout == "minimal" or not option(entry, "shrink", "enabled") then
+		return layout
+	end
+	local height = entry.view.maxY - entry.view.minY
+	if height < option(entry, "shrink", "minimalBelow") then
+		return "minimal"
+	elseif height < option(entry, "shrink", "badgeBelow") then
+		return "badge"
+	end
+	return layout
+end
+
 local function drawEntry(entry, camera, viewport, mouse)
 	local view = entry.view
 	if view.onScreen then
@@ -1295,7 +1339,7 @@ local function drawEntry(entry, camera, viewport, mouse)
 		drawTracer(entry, viewport, mouse)
 		drawSkeleton(entry, camera)
 		drawHead(entry, camera)
-		LAYOUTS[setting(entry, "layout")](entry)
+		LAYOUTS[effectiveLayout(entry)](entry)
 	elseif option(entry, "arrow", "enabled") then
 		drawArrow(entry, camera, viewport)
 	end
@@ -1553,6 +1597,7 @@ function Visuals.start(themeOverrides)
 	local gui = Instance.new("ScreenGui")
 	gui.Name = tostring(math.random(1e6, 1e7))
 	gui.IgnoreGuiInset = true
+	gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 	gui.ResetOnSpawn = false
 	gui.DisplayOrder = 1e6
 	gui.Parent = container

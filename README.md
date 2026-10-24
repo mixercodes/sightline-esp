@@ -59,6 +59,7 @@ esp:unload()
 | `look` | off, `length 6` | line along the head's look direction |
 | `arrow` | off, `radius 160`, `size 12` | points at targets that are off screen or behind you |
 | `chams` | off, `throughWalls true` | Highlight fill and outline, shared pool of 31 for the nearest targets |
+| `shrink` | on, `badgeBelow 60`, `minimalBelow 32`, `numberBelow 24` | box heights in pixels: cards become badges, panels become minimal, and classic drops its health number as targets get small |
 
 `esp:players` also turns on box and health.
 
@@ -86,11 +87,11 @@ players.settings.occluded = { theme = { boxColor = Color3.fromRGB(90, 90, 90) } 
 ## Layouts
 
 - `classic`: health bar and/or number left of the box, avatar and name above, distance and details below.
-- `card`: dark rounded panel with avatar, name, health number, distance and a details row.
+- `card`: dark rounded panel with an avatar beside two lines: the name, then health, distance and details.
 - `badge`: compact pill with a round avatar, name, health number and distance.
 - `minimal`: one line of shadowed text.
 
-Panels never draw a bar inside themselves: the health number goes in the panel and, with `health.style` set to `bar` or `both`, the bar sits left of the box as in `classic`.
+Panels never draw a bar inside themselves: the health number goes in the panel and, with `health.style` set to `bar` or `both` and the box on, the bar sits left of the box as in `classic`. Without a box the panel shows the number instead. The nearest target's panel draws on top.
 
 The health bar is a fixed gradient from `theme.healthColors` (0 is empty, 1 is full, any number of stops): as health drops, the top empties and the fill shows more of the low end. The same colours tint the health number. Set `health.gradient = false` for a solid bar that changes colour instead.
 
