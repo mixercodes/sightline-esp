@@ -81,7 +81,7 @@ local SETTINGS_DEFAULTS = {
 	look = { enabled = false, length = 6 },
 	arrow = { enabled = false, radius = 160, size = 12 },
 	chams = { enabled = false, throughWalls = true },
-	shrink = { enabled = true, badgeBelow = 60, minimalBelow = 32, numberBelow = 24 },
+	shrink = { enabled = true, badgeBeyond = 60, minimalBeyond = 120, numberBeyond = 160 },
 }
 local CHOICES = {
 	layout = { classic = true, card = true, badge = true, minimal = true },
@@ -1132,7 +1132,7 @@ local function drawClassic(entry)
 		if style ~= "number" then
 			edge = drawSideBar(entry)
 		end
-		local tooSmall = option(entry, "shrink", "enabled") and maxY - minY < option(entry, "shrink", "numberBelow")
+		local tooSmall = option(entry, "shrink", "enabled") and view.distance > option(entry, "shrink", "numberBeyond")
 		if style ~= "bar" and not tooSmall then
 			local main, shadow, bounds = text(entry, "healthText", root, small, healthColor(entry, view.fraction), healthText(entry))
 			local fillTop = maxY - (maxY - minY) * view.fraction
@@ -1583,10 +1583,10 @@ local function effectiveLayout(entry)
 	if layout == "classic" or layout == "minimal" or not option(entry, "shrink", "enabled") then
 		return layout
 	end
-	local height = entry.view.maxY - entry.view.minY
-	if height < option(entry, "shrink", "minimalBelow") then
+	local distance = entry.view.distance
+	if distance > option(entry, "shrink", "minimalBeyond") then
 		return "minimal"
-	elseif height < option(entry, "shrink", "badgeBelow") then
+	elseif distance > option(entry, "shrink", "badgeBeyond") then
 		return "badge"
 	end
 	return layout
