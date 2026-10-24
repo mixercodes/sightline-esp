@@ -10,7 +10,7 @@ local Sightline = loadstring(game:HttpGet("https://raw.githubusercontent.com/mix
 
 For local development, put `sightline.luau` in the executor's workspace folder and load it with `readfile("sightline.luau")` instead.
 
-Needs the standard executor functions `Drawing`, `getgenv` and `loadstring` (plus `game:HttpGet` for the loader). `cloneref` and `gethui` are used when present.
+Needs the standard executor functions `getgenv` and `loadstring` (plus `game:HttpGet` for the loader). `cloneref` and `gethui` are used when present.
 
 `test.luau` spawns six dummies (one per layout) and a crate in front of you and turns on every feature for players. Run it with `sightline.luau` in the workspace folder, and stop it with `getgenv().SightlineTest.stop()`.
 
@@ -59,7 +59,7 @@ esp:unload()
 | `skeleton` | off | any avatar with a Humanoid: limbs come from `Humanoid:GetLimb` and joints from Motor6Ds or AnimationConstraints, so R6, R15, Rthro, scaled and custom bodies all get a head line, spine, shoulder and hip bars and straight limbs; other rigs fall back to their joint chain |
 | `headDot` | off | |
 | `look` | off, `length 6` | line along the head's look direction |
-| `arrow` | off, `placement "circle"`, `radius 160`, `inset 24`, `size 12`, `maxDistance 0`, `label false` | points at targets that are off screen or behind you; `circle` keeps arrows `radius` pixels from the centre, `edge` puts them `inset` pixels inside the screen edge; `maxDistance` limits arrows to nearer targets (0 for all); `label` writes the target's name, health, distance and details beside its arrow, following the same settings as the on-screen text |
+| `arrow` | off, `placement "circle"`, `radius 160`, `inset 24`, `size 12`, `maxDistance 0`, `label false` | an outlined chevron pointing at targets that are off screen or behind you; `circle` keeps arrows `radius` pixels from the centre, `edge` puts them `inset` pixels inside the screen edge; `maxDistance` limits arrows to nearer targets (0 for all); `label` writes the target's name, health, distance and details beside its arrow, following the same settings as the on-screen text |
 | `chams` | off, `throughWalls true` | Highlight fill and outline, shared pool of 31 for the nearest targets |
 | `declutter` | off, `maxLift 150`, `spacing 2`, `leaders false` | labels are placed nearest-first and overlapping ones step up (at most `maxLift` pixels); `leaders` adds a line from each moved label back to its box |
 | `shrink` | on, `badgeBeyond 60`, `minimalBeyond 120`, `numberBeyond 160`, `detailBeyond 200` | studs from your HumanoidRootPart: cards become badges, panels become minimal, classic drops its health number, and the skeleton, head dot and look line stop drawing as targets get far away |
@@ -152,8 +152,9 @@ Everything is drawn in one ordered stack, bottom to top by these theme keys (ren
 | `leaderLayer` | 7 |
 | `healthBarLayer` | 8 |
 | `textLayer` | 9 (names, health numbers, distance, panels, avatars) |
+| `arrowLayer` | 10 |
 
-Within a layer, nearer targets draw on top, and two targets only swap when one is at least 2 studs closer, so close targets never flicker. Lines, boxes and rings are GUI frames and skeletons are `Path2D` lines, so they share this stack with the text; off-screen arrows stay on top.
+Within a layer, nearer targets draw on top, and two targets only swap when one is at least 2 studs closer, so close targets never flicker. Lines, boxes, rings and arrows are GUI frames and skeletons are `Path2D` lines, so everything shares this stack with the text.
 
 A theme value resolves from the overlays, then the team colour (with `useTeamColor`), then the group, then `esp.theme`. Values are type-checked, so `boxColor = "red"` errors.
 

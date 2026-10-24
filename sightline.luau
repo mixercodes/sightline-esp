@@ -60,7 +60,7 @@ for feature, outlined in { box = true, tracer = true, skeleton = false, headDot 
 end
 THEME_DEFAULTS.leaderColor = Color3.fromRGB(200, 200, 210)
 THEME_DEFAULTS.leaderTransparency = 0.4
-for layer, order in { boxFill = 1, tracer = 2, look = 3, skeleton = 4, headDot = 5, box = 6, leader = 7, healthBar = 8, text = 9 } do
+for layer, order in { boxFill = 1, tracer = 2, look = 3, skeleton = 4, headDot = 5, box = 6, leader = 7, healthBar = 8, text = 9, arrow = 10 } do
 	THEME_DEFAULTS[layer .. "Layer"] = order
 end
 local SETTINGS_DEFAULTS = {
@@ -112,6 +112,7 @@ local FRIEND_TAGS = { "Friend" }
 local STUDS_TO_METERS = 0.28
 local MAX_HIGHLIGHTS = 31
 local LIMB_TIP_INSET = 0.1
+local ARROW_SPREAD = 0.6
 local RIG_REFRESH = 2
 local INFO_INTERVAL = 0.1
 local LOCAL_BOUNDS_REFRESH = 0.1
@@ -120,7 +121,7 @@ local ORDER_MARGIN = 2
 local Z_STEP = 4
 local LAYER_STEP = 100000
 local LAYER_KEYS = {}
-for _, layer in { "boxFill", "tracer", "look", "skeleton", "headDot", "box", "leader", "healthBar", "text" } do
+for _, layer in { "boxFill", "tracer", "look", "skeleton", "headDot", "box", "leader", "healthBar", "text", "arrow" } do
 	LAYER_KEYS[layer] = layer .. "Layer"
 end
 local PARTS_REFRESH = 0.5
@@ -139,13 +140,6 @@ local UserInputService = cloneref(game:GetService("UserInputService"))
 local Workspace = cloneref(game:GetService("Workspace"))
 local CoreGui = cloneref(game:GetService("CoreGui"))
 local LocalPlayer = Players.LocalPlayer
-
-local INVERTED_TRANSPARENCY = (function()
-	local probe = Drawing.new("Line")
-	local inverted = probe.Transparency == 1
-	probe:Remove()
-	return inverted
-end)()
 
 local function numberedKeys(prefix, count)
 	local keys = {}
@@ -458,11 +452,6 @@ local function use(entry, key, create, ...)
 	return item
 end
 
-local function drawingAlpha(entry, transparency)
-	local value = 1 - (1 - transparency) * entry.opacity
-	return if INVERTED_TRANSPARENCY then 1 - value else value
-end
-
 local function guiAlpha(entry, transparency)
 	return 1 - (1 - transparency) * entry.opacity
 end
@@ -497,16 +486,6 @@ local function healthColor(entry, fraction)
 	return sample(theme(entry, "healthColors"), fraction)
 end
 
-
-local function newDrawing(kind, zIndex, filled)
-	local drawing = Drawing.new(kind)
-	drawing.Visible = false
-	drawing.ZIndex = zIndex
-	if filled ~= nil then
-		drawing.Filled = filled
-	end
-	return cached(drawing)
-end
 
 local function addCorner(parent)
 	local corner = Instance.new("UICorner")
@@ -730,43 +709,6 @@ local function circle(entry, key, center, radius, feature)
 		end
 	end
 	ring(entry, key, center, radius - thickness / 2, style.color, thickness, style.alpha, z + 1, filled)
-end
-
-local function grow(a, b, c, amount)
-	local sideA, sideB, sideC = (b - c).Magnitude, (c - a).Magnitude, (a - b).Magnitude
-	local perimeter = sideA + sideB + sideC
-	local area = math.abs((b - a).X * (c - a).Y - (b - a).Y * (c - a).X) / 2
-	if perimeter < 1e-3 or area < 1e-3 then
-		return a, b, c
-	end
-	local center = (a * sideA + b * sideB + c * sideC) / perimeter
-	local inradius = area / (perimeter / 2)
-	local scale = (inradius + amount) / inradius
-	return center + (a - center) * scale, center + (b - center) * scale, center + (c - center) * scale
-end
-
-local function triangle(entry, key, a, b, c, feature)
-	local style = styleOf(entry, feature)
-	local alpha = drawingAlpha(entry, style.transparency)
-	if style.outlined then
-		local outerA, outerB, outerC = grow(a, b, c, style.outlineWidth)
-		local border = use(entry, key .. "Border", newDrawing, "Triangle", 1, true)
-		set(border, "ZIndex", entry.zBase + 1)
-		set(border, "PointA", outerA)
-		set(border, "PointB", outerB)
-		set(border, "PointC", outerC)
-		set(border, "Color", style.outlineColor)
-		set(border, "Transparency", alpha)
-		set(border, "Visible", true)
-	end
-	local main = use(entry, key, newDrawing, "Triangle", 2, true)
-	set(main, "ZIndex", entry.zBase + 2)
-	set(main, "PointA", a)
-	set(main, "PointB", b)
-	set(main, "PointC", c)
-	set(main, "Color", style.color)
-	set(main, "Transparency", alpha)
-	set(main, "Visible", true)
 end
 
 local function styleLabel(entry, item, value, size, color, transparency, zIndex)
@@ -1380,7 +1322,9 @@ local function drawArrow(entry, camera, viewport)
 	else
 		tip = center + direction * math.min(option(entry, "arrow", "radius"), center.Y - 20)
 	end
-	triangle(entry, "arrow", snap(tip), snap(tip - rotate(direction, 0.5) * size), snap(tip - rotate(direction, -0.5) * size), "arrow")
+	local point = snap(tip)
+	line(entry, "arrowLeft", point, snap(tip - rotate(direction, ARROW_SPREAD) * size), "arrow")
+	line(entry, "arrowRight", point, snap(tip - rotate(direction, -ARROW_SPREAD) * size), "arrow")
 	if option(entry, "arrow", "label") then
 		arrowLabel(entry, tip, tip - direction * size, direction, edge)
 	end
@@ -2086,11 +2030,7 @@ end
 
 local function destroyElements(entry)
 	for _, item in entry.elements do
-		if typeof(item.object) == "Instance" then
-			item.object:Destroy()
-		else
-			item.object:Remove()
-		end
+		item.object:Destroy()
 	end
 	table.clear(entry.elements)
 end
