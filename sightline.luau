@@ -86,7 +86,7 @@ local SETTINGS_DEFAULTS = {
 	look = { enabled = false, length = 6 },
 	arrow = { enabled = false, radius = 160, size = 12 },
 	chams = { enabled = false, throughWalls = true },
-	shrink = { enabled = true, badgeBeyond = 60, minimalBeyond = 120, numberBeyond = 160 },
+	shrink = { enabled = true, badgeBeyond = 60, minimalBeyond = 120, numberBeyond = 160, detailBeyond = 200 },
 	declutter = { enabled = false, maxLift = 150, spacing = 2, leaders = false },
 }
 local CHOICES = {
@@ -111,6 +111,10 @@ local FRIEND_TAGS = { "Friend" }
 local STUDS_TO_METERS = 0.28
 local MAX_HIGHLIGHTS = 31
 local LIMB_TIP_INSET = 0.1
+local RIG_REFRESH = 2
+local INFO_INTERVAL = 0.1
+local LOCAL_BOUNDS_REFRESH = 0.1
+local LOD_PIXELS = 70
 local ORDER_MARGIN = 2
 local Z_STEP = 4
 local LAYER_STEP = 100000
@@ -151,8 +155,6 @@ local function numberedKeys(prefix, count)
 end
 local BONE_KEYS = numberedKeys("bone", 64)
 local EDGE_KEYS = numberedKeys("edge", 12)
-local CORNER_KEYS = numberedKeys("corner", 8)
-local CORNER_OUTLINE_KEYS = numberedKeys("cornerOutline", 8)
 local DETAIL_KEYS = numberedKeys("detail", 16)
 local BOX_EDGES = {}
 for corner = 0, 7 do
@@ -187,6 +189,7 @@ local function checkValue(path, key, value, default)
 end
 
 local RAW = setmetatable({}, { __mode = "k" })
+local settingsVersion = 0
 
 local function strict(defaults, given, path, partial, specials)
 	given = given or {}
@@ -236,6 +239,7 @@ local function strict(defaults, given, path, partial, specials)
 				end
 				special.value = special.replace(value)
 				store[key] = special.value
+				settingsVersion += 1
 				return
 			end
 			local default = defaults[key]
@@ -246,6 +250,7 @@ local function strict(defaults, given, path, partial, specials)
 			end
 			checkValue(path, key, value, default)
 			store[key] = value
+			settingsVersion += 1
 		end,
 		__iter = function()
 			return next, store
@@ -279,6 +284,7 @@ function buildSettings(given, partial)
 			__index = built,
 			__newindex = function(_, name, variant)
 				built[name] = if variant then partialSettings(variant) else nil
+				settingsVersion += 1
 			end,
 			__iter = function()
 				return next, built
@@ -362,9 +368,11 @@ local DEFAULT_ACCESSORS = {
 			return { model }
 		end
 		local parts = {}
-		local source = if humanoidOf(model) then model:GetChildren() else model:GetDescendants()
+		local humanoid = humanoidOf(model)
+		local root = humanoid and humanoid.RootPart
+		local source = if humanoid then model:GetChildren() else model:GetDescendants()
 		for _, part in source do
-			if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" and part.Transparency < 1 then
+			if part:IsA("BasePart") and part ~= root and part.Transparency < 1 then
 				table.insert(parts, part)
 			end
 		end
@@ -442,6 +450,10 @@ local function use(entry, key, create, ...)
 		entry.elements[key] = item
 	end
 	item.tick = entry.tick
+	local recording = entry.recording
+	if recording then
+		table.insert(recording, item)
+	end
 	return item
 end
 
@@ -567,6 +579,33 @@ local function newBar(parent)
 	return item
 end
 
+local ARM_SHAPES = {
+	{ true, 0, 0 }, { false, 0, 0 },
+	{ true, 1, 0 }, { false, 1, 0 },
+	{ true, 0, 1 }, { false, 0, 1 },
+	{ true, 1, 1 }, { false, 1, 1 },
+}
+
+local function newBoxRoot(parent)
+	local frame = Instance.new("Frame")
+	frame.BackgroundTransparency = 1
+	frame.BorderSizePixel = 0
+	frame.Visible = false
+	frame.Parent = parent
+	local item = cached(frame)
+	item.arms, item.borders = {}, {}
+	for index = 1, #ARM_SHAPES do
+		for _, list in { item.borders, item.arms } do
+			local piece = Instance.new("Frame")
+			piece.BorderSizePixel = 0
+			piece.ZIndex = if list == item.arms then 2 else 1
+			piece.Parent = frame
+			list[index] = cached(piece)
+		end
+	end
+	return item
+end
+
 local function layerZ(entry, layer, sub)
 	return theme(entry, LAYER_KEYS[layer]) * LAYER_STEP + entry.zBase + sub
 end
@@ -632,6 +671,7 @@ local function styleOf(entry, feature)
 		style.alpha = guiAlpha(entry, style.transparency)
 		style.outlineColor = theme(entry, "outlineColor")
 		style.outlineWidth = theme(entry, "lineOutlineWidth")
+		style.z = if LAYER_KEYS[feature] then layerZ(entry, feature, 0) else 0
 	end
 	return style
 end
@@ -654,7 +694,7 @@ local function line(entry, key, from, to, feature)
 	local length = delta.Magnitude
 	local rotation = math.deg(math.atan2(delta.Y, delta.X))
 	local center = (from + to) / 2
-	local z = layerZ(entry, feature, 0)
+	local z = style.z
 	if style.outlined then
 		local width = style.outlineWidth
 		segment(entry, key .. "Border", center, length + thickness + width * 2, thickness + width * 2, rotation, style.outlineColor, style.alpha, z)
@@ -680,7 +720,7 @@ local function circle(entry, key, center, radius, feature)
 	local style = styleOf(entry, feature)
 	local thickness = math.max(style.thickness, 1)
 	local filled = theme(entry, feature .. "Filled") == true
-	local z = layerZ(entry, feature, 0)
+	local z = style.z
 	if style.outlined then
 		local width = style.outlineWidth
 		ring(entry, key .. "Outer", center, radius + thickness / 2, style.outlineColor, width, style.alpha, z, false)
@@ -738,6 +778,12 @@ local function styleLabel(entry, item, value, size, color, transparency, zIndex)
 	set(item, "Visible", true)
 end
 
+local function newMeasuredLabel(entry, parent)
+	local item = newLabel(parent)
+	table.insert(entry.labels, item)
+	return item
+end
+
 local function text(entry, key, parent, size, color, plain, rich)
 	local escaped = escape(plain)
 	local shadow
@@ -745,9 +791,28 @@ local function text(entry, key, parent, size, color, plain, rich)
 		shadow = use(entry, key .. "Shadow", newLabel, parent)
 		styleLabel(entry, shadow, escaped, size, theme(entry, "shadowColor"), theme(entry, "shadowTransparency"), 1)
 	end
-	local main = use(entry, key, newLabel, parent)
+	local main = use(entry, key, newMeasuredLabel, entry, parent)
 	styleLabel(entry, main, rich or escaped, size, color, 0, 2)
-	return main, shadow, main.object.TextBounds
+	local bounds = main.bounds
+	if not bounds or main.boundsFor ~= main.cache.Text or main.boundsSize ~= size then
+		bounds = main.measured or Vector2.new(#plain * size * 0.5, size)
+		entry.staleBounds = true
+	end
+	return main, shadow, bounds
+end
+
+local function measureLabels(esp)
+	for _, group in esp.groups do
+		for _, entry in group.entries do
+			for _, item in entry.labels do
+				local cache = item.cache
+				if cache.Visible and (item.boundsFor ~= cache.Text or item.boundsSize ~= cache.TextSize or item.boundsFont ~= cache.FontFace) then
+					item.measured = item.object.TextBounds
+					item.bounds, item.boundsFor, item.boundsSize, item.boundsFont = item.measured, cache.Text, cache.TextSize, cache.FontFace
+				end
+			end
+		end
+	end
 end
 
 local function join(parts, separator)
@@ -761,21 +826,35 @@ local function join(parts, separator)
 	return rich, plain
 end
 
+local function pin(item, xScale, x, yScale, y, anchorX, anchorY)
+	set(item, "AnchorPoint", Vector2.new(anchorX or 0, anchorY or 0))
+	set(item, "Position", UDim2.new(xScale, x, yScale, y))
+end
+
+local function pinText(entry, main, shadow, xScale, x, yScale, y, anchorX, anchorY)
+	pin(main, xScale, x, yScale, y, anchorX, anchorY)
+	if shadow then
+		local offset = theme(entry, "shadowOffset")
+		pin(shadow, xScale, x + offset.X, yScale, y + offset.Y, anchorX, anchorY)
+	end
+end
+
 local function place(entry, main, shadow, x, y)
-	local offset = theme(entry, "shadowOffset")
+	x, y = x - entry.originX, y - entry.originY
 	set(main, "Position", UDim2.fromOffset(x, y))
 	if shadow then
+		local offset = theme(entry, "shadowOffset")
 		set(shadow, "Position", UDim2.fromOffset(x + offset.X, y + offset.Y))
 	end
 end
 
-local function avatarImage(entry, key, parent, image, x, y, size, radius)
+local function avatarImage(entry, key, parent, image, xScale, x, yScale, y, size, radius)
 	local item = use(entry, key, newImage, parent)
 	set(item, "Image", image)
 	set(item, "ImageTransparency", guiAlpha(entry, 0))
 	set(item, "BackgroundColor3", theme(entry, "avatarBackgroundColor"))
 	set(item, "BackgroundTransparency", guiAlpha(entry, theme(entry, "avatarBackgroundTransparency")))
-	set(item, "Position", UDim2.fromOffset(x, y))
+	set(item, "Position", UDim2.new(xScale, x, yScale, y))
 	set(item, "Size", UDim2.fromOffset(size, size))
 	set(item, "ZIndex", layerZ(entry, "text", 2))
 	set(item, "Visible", true)
@@ -845,12 +924,13 @@ local function healthShown(entry)
 	return option(entry, "health", "enabled") and entry.view.fraction ~= nil
 end
 
-local projection = { inverse = CFrame.identity, centerX = 0, centerY = 0, scale = 1 }
+local projection = { inverse = CFrame.identity, centerX = 0, centerY = 0, scale = 1, viewport = Vector2.zero }
 
 local function updateProjection(camera)
 	local viewport = camera.ViewportSize
 	projection.inverse = camera.CFrame:Inverse()
 	projection.centerX, projection.centerY = viewport.X / 2, viewport.Y / 2
+	projection.viewport = viewport
 	projection.scale = projection.centerY / math.tan(math.rad(camera.FieldOfView) / 2)
 end
 
@@ -892,30 +972,38 @@ local function drawBox(entry)
 		then math.max(thickness + 1, math.floor(math.min(width, height) * theme(entry, "cornerLength")))
 		else math.huge
 	local lengthX, lengthY = math.min(length, width + 1), math.min(length, height + 1)
-	local left, top = view.minX, view.minY
-	local right, bottom = view.maxX - thickness + 1, view.maxY - thickness + 1
-	local farX, farY = view.maxX - lengthX + 1, view.maxY - lengthY + 1
-	local arms = entry.armBuffer
-	arms[1], arms[2], arms[3], arms[4] = left, top, lengthX, thickness
-	arms[5], arms[6], arms[7], arms[8] = left, top, thickness, lengthY
-	arms[9], arms[10], arms[11], arms[12] = farX, top, lengthX, thickness
-	arms[13], arms[14], arms[15], arms[16] = right, top, thickness, lengthY
-	arms[17], arms[18], arms[19], arms[20] = left, bottom, lengthX, thickness
-	arms[21], arms[22], arms[23], arms[24] = left, farY, thickness, lengthY
-	arms[25], arms[26], arms[27], arms[28] = farX, bottom, lengthX, thickness
-	arms[29], arms[30], arms[31], arms[32] = right, farY, thickness, lengthY
-	local color = theme(entry, "boxColor")
-	local transparency = theme(entry, "boxTransparency")
-	local outline = theme(entry, "outlineColor")
 	local outlined = theme(entry, "boxOutline")
-	for index = 1, 8 do
-		local base = (index - 1) * 4
-		local armPosition = Vector2.new(arms[base + 1], arms[base + 2])
-		local armSize = Vector2.new(arms[base + 3], arms[base + 4])
-		if outlined then
-			square(entry, CORNER_OUTLINE_KEYS[index], "box", 0, outline, transparency, armPosition - Vector2.one, armSize + Vector2.one * 2)
+	local root = use(entry, "boxRoot", newBoxRoot, entry.esp.gui)
+	set(root, "Position", UDim2.fromOffset(view.minX, view.minY))
+	set(root, "Size", UDim2.fromOffset(width + 1, height + 1))
+	set(root, "ZIndex", layerZ(entry, "box", 0))
+	set(root, "Visible", true)
+	if root.lengthX ~= lengthX or root.lengthY ~= lengthY or root.thickness ~= thickness or root.outlined ~= outlined then
+		root.lengthX, root.lengthY, root.thickness, root.outlined = lengthX, lengthY, thickness, outlined
+		for index, shape in ARM_SHAPES do
+			local horizontal, xScale, yScale = shape[1], shape[2], shape[3]
+			local armWidth = if horizontal then lengthX else thickness
+			local armHeight = if horizontal then thickness else lengthY
+			local x, y = -xScale * armWidth, -yScale * armHeight
+			local arm, border = root.arms[index], root.borders[index]
+			set(arm, "Position", UDim2.new(xScale, x, yScale, y))
+			set(arm, "Size", UDim2.fromOffset(armWidth, armHeight))
+			set(border, "Position", UDim2.new(xScale, x - 1, yScale, y - 1))
+			set(border, "Size", UDim2.fromOffset(armWidth + 2, armHeight + 2))
+			set(border, "Visible", outlined)
 		end
-		square(entry, CORNER_KEYS[index], "box", 1, color, transparency, armPosition, armSize)
+	end
+	local color = theme(entry, "boxColor")
+	local alpha = guiAlpha(entry, theme(entry, "boxTransparency"))
+	local outline = theme(entry, "outlineColor")
+	if root.color ~= color or root.alpha ~= alpha or root.outline ~= outline then
+		root.color, root.alpha, root.outline = color, alpha, outline
+		for index = 1, #ARM_SHAPES do
+			set(root.arms[index], "BackgroundColor3", color)
+			set(root.arms[index], "BackgroundTransparency", alpha)
+			set(root.borders[index], "BackgroundColor3", outline)
+			set(root.borders[index], "BackgroundTransparency", alpha)
+		end
 	end
 end
 
@@ -946,132 +1034,240 @@ local function drawTracer(entry, viewport, mouse)
 	line(entry, "tracer", from, to, "tracer")
 end
 
-local function limbEnds(part, topInset)
-	local cframe, half = part.CFrame, part.Size.Y / 2
-	return cframe * Vector3.new(0, half - topInset, 0), cframe * Vector3.new(0, LIMB_TIP_INSET - half, 0)
+local function frameOf(frames, part)
+	local cframe = frames[part]
+	if not cframe then
+		cframe = part.CFrame
+		frames[part] = cframe
+	end
+	return cframe
 end
 
-local function r6Segments(rig, segments)
-	table.clear(segments)
-	local torso = rig.Torso
-	local torsoHalf = torso.Size.Y / 2
-	local neck = torso.CFrame * Vector3.new(0, torsoHalf, 0)
-	local pelvis = torso.CFrame * Vector3.new(0, -torsoHalf, 0)
-	local leftShoulder, leftHand = limbEnds(rig["Left Arm"], rig["Left Arm"].Size.X / 2)
-	local rightShoulder, rightHand = limbEnds(rig["Right Arm"], rig["Right Arm"].Size.X / 2)
-	local leftHip, leftFoot = limbEnds(rig["Left Leg"], 0)
-	local rightHip, rightFoot = limbEnds(rig["Right Leg"], 0)
-	table.move({
-		rig.Head.Position, neck,
-		neck, pelvis,
-		leftShoulder, rightShoulder,
-		leftShoulder, leftHand,
-		rightShoulder, rightHand,
-		pelvis, leftHip,
-		pelvis, rightHip,
-		leftHip, leftFoot,
-		rightHip, rightFoot,
-	}, 1, 18, 1, segments)
-	return segments
-end
-
-local function jointPosition(motor)
-	return if motor.Part0 then (motor.Part0.CFrame * motor.C0).Position else nil
-end
-
-local function extend(from, to, part)
-	if not (from and to) then
+local function jointPosition(joint, frames)
+	if not joint then
 		return nil
 	end
-	local delta = to - from
-	if delta.Magnitude < 1e-3 then
-		return nil
+	local motor = joint.motor
+	if motor then
+		local part0 = joint.part0
+		return (if frames then frameOf(frames, part0) else part0.CFrame) * motor.C0.Position
 	end
-	local along = (part.Position - to):Dot(delta.Unit)
-	return if along > 0 then to + delta.Unit * along else nil
+	local attachment = joint.attachment
+	return if attachment.Parent then attachment.WorldPosition else nil
 end
 
-local function addSegment(segments, from, to)
-	if from and to then
-		table.insert(segments, from)
-		table.insert(segments, to)
+local function longAxis(cframe, size, direction)
+	local right, up, look = cframe.RightVector, cframe.UpVector, cframe.LookVector
+	local dx, dy, dz = right:Dot(direction), up:Dot(direction), look:Dot(direction)
+	local ax, ay, az = math.abs(dx), math.abs(dy), math.abs(dz)
+	if ax >= ay and ax >= az then
+		return if dx >= 0 then right else -right, size.X / 2
+	elseif ay >= az then
+		return if dy >= 0 then up else -up, size.Y / 2
+	end
+	return if dz >= 0 then look else -look, size.Z / 2
+end
+
+local function chainPoints(chain, motors, sizes, frames, points, owners)
+	table.clear(points)
+	table.clear(owners)
+	local first = chain[1]
+	local entry = jointPosition(motors[first], frames)
+	if not entry then
+		return points, owners
+	end
+	points[1], owners[1] = entry, first
+	local count = #chain
+	for index = 2, count do
+		local joint = jointPosition(motors[chain[index]], frames)
+		if joint then
+			table.insert(points, joint)
+			table.insert(owners, chain[index])
+		end
+	end
+	local firstFrame = frameOf(frames, first)
+	local center = firstFrame.Position
+	local axis = longAxis(firstFrame, sizes[first], (points[2] or center) - entry)
+	points[1] = center + axis * (entry - center):Dot(axis)
+	local last, lastPoint = chain[count], points[#points]
+	local lastFrame = frameOf(frames, last)
+	local lastCenter = lastFrame.Position
+	if count > 1 and #points > 1 then
+		local direction = lastPoint - points[#points - 1]
+		if direction.Magnitude > 1e-3 then
+			local unit = direction.Unit
+			local along = (lastCenter - lastPoint):Dot(unit)
+			if along > 0 then
+				table.insert(points, lastPoint + unit * along)
+				table.insert(owners, last)
+			end
+		end
+	else
+		local tipAxis, half = longAxis(lastFrame, sizes[last], lastCenter - lastPoint)
+		table.insert(points, lastCenter + tipAxis * math.max(half - LIMB_TIP_INSET, 0))
+		table.insert(owners, last)
+	end
+	return points, owners
+end
+
+local function joinLimbs(left, leftOwners, right, rightOwners)
+	local points, owners = {}, {}
+	if left then
+		for index = #left, 1, -1 do
+			table.insert(points, left[index])
+			table.insert(owners, leftOwners[index])
+		end
+	end
+	if right then
+		table.move(right, 1, #right, #points + 1, points)
+		table.move(rightOwners, 1, #rightOwners, #owners + 1, owners)
+	end
+	return points, owners
+end
+
+local function anchored(points, owners)
+	local offsets = table.create(#points)
+	for index, point in points do
+		offsets[index] = owners[index].CFrame:PointToObjectSpace(point)
+	end
+	return { parts = owners, offsets = offsets }
+end
+
+local function rigPaths(rig)
+	local motors, sizes, frames = rig.motors, rig.sizes, {}
+	local function limb(chain)
+		if chain then
+			return chainPoints(chain, motors, sizes, frames, {}, {})
+		end
+		return nil, nil
+	end
+	local leftArm, leftArmOwners = limb(rig.leftArm)
+	local rightArm, rightArmOwners = limb(rig.rightArm)
+	local leftLeg, leftLegOwners = limb(rig.leftLeg)
+	local rightLeg, rightLegOwners = limb(rig.rightLeg)
+	local spine, spineOwners = {}, {}
+	local function add(point, owner)
+		if point then
+			table.insert(spine, point)
+			table.insert(spineOwners, owner)
+		end
+	end
+	if rig.head then
+		add(rig.head.Position, rig.head)
+		add(jointPosition(motors[rig.head], frames), rig.head)
+	end
+	for index = #rig.torso, 2, -1 do
+		add(jointPosition(motors[rig.torso[index]], frames), rig.torso[index])
+	end
+	local leftHip, rightHip = leftLeg and leftLeg[1], rightLeg and rightLeg[1]
+	add(if leftHip and rightHip then (leftHip + rightHip) / 2 else jointPosition(motors[rig.torso[1]], frames), rig.torso[1])
+	return {
+		anchored(spine, spineOwners),
+		anchored(joinLimbs(leftArm, leftArmOwners, rightArm, rightArmOwners)),
+		anchored(joinLimbs(leftLeg, leftLegOwners, rightLeg, rightLegOwners)),
+	}
+end
+
+local PATH_KEYS = { { "spine", "spineBorder" }, { "arms", "armsBorder" }, { "legs", "legsBorder" } }
+local pathCoords, pathControls = {}, {}
+
+local function newPath(parent)
+	local path = Instance.new("Path2D")
+	path.Visible = false
+	path.Parent = parent
+	local item = cached(path)
+	item.coords = {}
+	return item
+end
+
+local function pathChanged(item, coords)
+	local last, count = item.coords, #coords
+	if #last == count then
+		local index = 1
+		while index <= count and last[index] == coords[index] do
+			index += 1
+		end
+		if index > count then
+			return false
+		end
+	end
+	table.clear(last)
+	table.move(coords, 1, count, 1, last)
+	return true
+end
+
+local function stroke(entry, key, thickness, color, alpha, z)
+	local item = use(entry, key, newPath, entry.esp.gui)
+	set(item, "Thickness", thickness)
+	set(item, "Color3", color)
+	set(item, "Transparency", alpha)
+	set(item, "ZIndex", z)
+	set(item, "Visible", true)
+	if pathChanged(item, pathCoords) then
+		if #pathControls == 0 then
+			for index = 1, #pathCoords, 2 do
+				table.insert(pathControls, Path2DControlPoint.new(UDim2.fromOffset(pathCoords[index], pathCoords[index + 1])))
+			end
+		end
+		item.object:SetControlPoints(pathControls)
 	end
 end
 
-local function r15Segments(rig, segments)
-	table.clear(segments)
-	local joints = rig.joints
-	local neck, waist = jointPosition(joints.Neck), jointPosition(joints.Waist)
-	local leftShoulder, rightShoulder = jointPosition(joints.LeftShoulder), jointPosition(joints.RightShoulder)
-	local leftElbow, rightElbow = jointPosition(joints.LeftElbow), jointPosition(joints.RightElbow)
-	local leftWrist, rightWrist = jointPosition(joints.LeftWrist), jointPosition(joints.RightWrist)
-	local leftHip, rightHip = jointPosition(joints.LeftHip), jointPosition(joints.RightHip)
-	local leftKnee, rightKnee = jointPosition(joints.LeftKnee), jointPosition(joints.RightKnee)
-	local leftAnkle, rightAnkle = jointPosition(joints.LeftAnkle), jointPosition(joints.RightAnkle)
-	local pelvis = if leftHip and rightHip then (leftHip + rightHip) / 2 else nil
-	addSegment(segments, rig.Head.Position, neck)
-	addSegment(segments, neck, waist)
-	addSegment(segments, waist, pelvis)
-	addSegment(segments, leftShoulder, rightShoulder)
-	addSegment(segments, leftShoulder, leftElbow)
-	addSegment(segments, leftElbow, leftWrist)
-	addSegment(segments, leftWrist, extend(leftElbow, leftWrist, rig.LeftHand))
-	addSegment(segments, rightShoulder, rightElbow)
-	addSegment(segments, rightElbow, rightWrist)
-	addSegment(segments, rightWrist, extend(rightElbow, rightWrist, rig.RightHand))
-	addSegment(segments, leftHip, rightHip)
-	addSegment(segments, leftHip, leftKnee)
-	addSegment(segments, leftKnee, leftAnkle)
-	addSegment(segments, leftAnkle, extend(leftKnee, leftAnkle, rig.LeftFoot))
-	addSegment(segments, rightHip, rightKnee)
-	addSegment(segments, rightKnee, rightAnkle)
-	addSegment(segments, rightAnkle, extend(rightKnee, rightAnkle, rig.RightFoot))
-	return segments
+local function drawPath(entry, keys, path, frames)
+	local parts, offsets = path.parts, path.offsets
+	if #parts < 2 then
+		return
+	end
+	table.clear(pathCoords)
+	table.clear(pathControls)
+	local inverse, centerX, centerY, scale = projection.inverse, projection.centerX, projection.centerY, projection.scale
+	for index, part in parts do
+		local relative = inverse * (frameOf(frames, part) * offsets[index])
+		local depth = -relative.Z
+		if depth <= 0 then
+			return
+		end
+		table.insert(pathCoords, centerX + relative.X * scale / depth)
+		table.insert(pathCoords, centerY - relative.Y * scale / depth)
+	end
+	local style = styleOf(entry, "skeleton")
+	local thickness = math.max(style.thickness, 1)
+	if style.outlined then
+		stroke(entry, keys[2], thickness + style.outlineWidth * 2, style.outlineColor, style.alpha, style.z)
+	end
+	stroke(entry, keys[1], thickness, style.color, style.alpha, style.z + 1)
 end
 
 local function drawSkeleton(entry, camera)
 	if not option(entry, "skeleton", "enabled") then
 		return
 	end
-	local count = 0
-	if entry.r6 or entry.r15 then
-		local segments = if entry.r6 then r6Segments(entry.r6, entry.segmentBuffer) else r15Segments(entry.r15, entry.segmentBuffer)
-		local projected, front = entry.projectBuffer, entry.frontBuffer
-		table.clear(projected)
-		table.clear(front)
-		for _, point in segments do
-			if projected[point] == nil then
-				projected[point], front[point] = screen(point)
-			end
-		end
-		for index = 1, #segments, 2 do
-			local from, to = segments[index], segments[index + 1]
-			local a, aFront = projected[from], front[from]
-			local b, bFront = projected[to], front[to]
-			if aFront and bFront then
-				count += 1
-				line(entry, BONE_KEYS[count], a, b, "skeleton")
-			end
+	local rig = entry.rig
+	if rig then
+		table.clear(rig.frames)
+		for index, path in rig.paths do
+			drawPath(entry, PATH_KEYS[index], path, rig.frames)
 		end
 		return
 	end
+	local count = 0
 	if not entry.bones then
 		return
 	end
 	for _, bone in entry.bones do
-		local motor, child = bone[1], bone[2]
-		if not (motor.Part0 and motor.Part1) then
+		local joint, child = bone[1], bone[2]
+		local from = jointPosition(joint)
+		if not from then
 			continue
 		end
-		local from = (motor.Part0.CFrame * motor.C0).Position
 		local to
 		if child then
-			if not child.Part0 then
+			to = jointPosition(child)
+			if not to then
 				continue
 			end
-			to = (child.Part0.CFrame * child.C0).Position
 		else
-			to = from + (motor.Part1.Position - from) * 2
+			to = from + (joint.part1.Position - from) * 2
 		end
 		local a, aFront = screen(from)
 		local b, bFront = screen(to)
@@ -1132,32 +1328,30 @@ end
 
 local function drawSideBar(entry)
 	local view = entry.view
-	local minX, minY, maxY = view.minX, view.minY, view.maxY
-	local height = maxY - minY
-	if height < 2 then
-		return minX - 1
-	end
 	local width = theme(entry, "barWidth")
 	local border = if theme(entry, "barOutline") then 1 else 0
+	local gap = theme(entry, "barGap")
 	local onRight = option(entry, "health", "side") == "right"
-	local x = if onRight then view.maxX + theme(entry, "barGap") - border else minX - theme(entry, "barGap") - width - border
-	local item = use(entry, "healthBar", newBar, entry.esp.gui)
-	set(item, "Position", UDim2.fromOffset(x, minY - border))
-	set(item, "Size", UDim2.fromOffset(width + border * 2, height + border * 2))
+	local xScale = if onRight then 1 else 0
+	local x = if onRight then gap - border else -gap - width - border
+	local item = use(entry, "healthBar", newBar, entry.anchor)
+	set(item, "Position", UDim2.new(xScale, x, 0, -border))
+	set(item, "Size", UDim2.new(0, width + border * 2, 1, border * 2))
 	set(item, "BackgroundColor3", theme(entry, "outlineColor"))
 	set(item, "BackgroundTransparency", guiAlpha(entry, if border > 0 then 0 else 1))
 	set(item, "ZIndex", layerZ(entry, "healthBar", 0))
 	set(item, "Visible", true)
 	set(item.back, "Position", UDim2.fromOffset(border, border))
-	set(item.back, "Size", UDim2.fromOffset(width, height))
+	set(item.back, "Size", UDim2.new(0, width, 1, -border * 2))
 	set(item.back, "BackgroundColor3", theme(entry, "barBackgroundColor"))
 	set(item.back, "BackgroundTransparency", guiAlpha(entry, theme(entry, "barBackgroundTransparency")))
 
-	local fill = math.round(height * view.fraction)
-	set(item.clip, "Position", UDim2.fromOffset(0, height - fill))
-	set(item.clip, "Size", UDim2.fromOffset(width, fill))
-	set(item.fill, "Position", UDim2.fromOffset(0, fill - height))
-	set(item.fill, "Size", UDim2.fromOffset(width, height))
+	local fraction = math.clamp(view.fraction, 0.001, 1)
+	set(item.clip, "Position", UDim2.fromScale(0, 1 - fraction))
+	set(item.clip, "Size", UDim2.fromScale(1, fraction))
+	set(item.clip, "Visible", view.fraction > 0.002)
+	set(item.fill, "Position", UDim2.fromScale(0, 1 - 1 / fraction))
+	set(item.fill, "Size", UDim2.fromScale(1, 1 / fraction))
 	set(item.fill, "BackgroundTransparency", guiAlpha(entry, 0))
 	if option(entry, "health", "gradient") then
 		set(item.gradient, "Enabled", true)
@@ -1167,7 +1361,7 @@ local function drawSideBar(entry)
 		set(item.gradient, "Enabled", false)
 		set(item.fill, "BackgroundColor3", healthColor(entry, view.fraction))
 	end
-	return if onRight then x + width + border * 2 else x
+	return xScale, if onRight then x + width + border * 2 else x
 end
 
 local function leaderBar(entry, key, x, top, bottom, width, color, transparency, zIndex)
@@ -1231,25 +1425,24 @@ end
 
 local function drawClassic(entry)
 	local view = entry.view
-	local minX, minY, maxX, maxY = view.minX, view.minY, view.maxX, view.maxY
-	local root = entry.esp.gui
+	local minX, minY, maxX = view.minX, view.minY, view.maxX
+	local root = entry.anchor
 	local gap = theme(entry, "textGap")
 	local small = theme(entry, "smallTextSize")
 	local onRight = option(entry, "health", "side") == "right"
-	local edge = if onRight then maxX + 1 else minX - 1
+	local edgeScale, edgeOffset = if onRight then 1 else 0, if onRight then 1 else -1
 
 	if healthShown(entry) then
 		local style = option(entry, "health", "style")
 		if style ~= "number" then
-			edge = drawSideBar(entry)
+			edgeScale, edgeOffset = drawSideBar(entry)
 		end
 		local tooSmall = option(entry, "shrink", "enabled") and view.distance > option(entry, "shrink", "numberBeyond")
 		if style ~= "bar" and not tooSmall then
-			local main, shadow, bounds = text(entry, "healthText", root, small, healthColor(entry, view.fraction), healthText(entry))
-			local fillTop = maxY - (maxY - minY) * view.fraction
-			local y = if style == "both" then math.clamp(fillTop - bounds.Y / 2, minY, math.max(minY, maxY - bounds.Y)) else minY
-			local x = if onRight then edge + theme(entry, "textGap") else edge - theme(entry, "textGap") - math.ceil(bounds.X)
-			place(entry, main, shadow, x, math.floor(y))
+			local main, shadow = text(entry, "healthText", root, small, healthColor(entry, view.fraction), healthText(entry))
+			local yScale = if style == "both" then 1 - view.fraction else 0
+			local x = if onRight then edgeOffset + gap else edgeOffset - gap
+			pinText(entry, main, shadow, edgeScale, x, yScale, 0, if onRight then 0 else 1, yScale)
 		end
 	end
 
@@ -1265,13 +1458,17 @@ local function drawClassic(entry)
 		local avatarSize = if avatar then theme(entry, "avatarSize") else 0
 		local avatarSpace = if avatar and name then avatarSize + 3 else avatarSize
 		local rowHeight = math.max(nameHeight, avatarSize)
-		local x = math.floor((minX + maxX - nameWidth - avatarSpace) / 2)
-		local top = claim(entry, x, minY - 1 - gap - rowHeight, nameWidth + avatarSpace, rowHeight)
+		local rowWidth = nameWidth + avatarSpace
+		local xScale, x, top = 0.5, -math.floor(rowWidth / 2), -1 - gap - rowHeight
+		if option(entry, "declutter", "enabled") then
+			local absoluteX = math.floor((minX + maxX - rowWidth) / 2)
+			xScale, x, top = 0, absoluteX - minX, claim(entry, absoluteX, minY + top, rowWidth, rowHeight) - minY
+		end
 		if avatar then
-			avatarImage(entry, "avatar", root, avatar, x, top + math.floor((rowHeight - avatarSize) / 2), avatarSize, theme(entry, "avatarCornerRadius"))
+			avatarImage(entry, "avatar", root, avatar, xScale, x, 0, top + math.floor((rowHeight - avatarSize) / 2), avatarSize, theme(entry, "avatarCornerRadius"))
 		end
 		if main then
-			place(entry, main, shadow, x + avatarSpace, top + math.floor((rowHeight - nameHeight) / 2))
+			pinText(entry, main, shadow, xScale, x + avatarSpace, 0, top + math.floor((rowHeight - nameHeight) / 2))
 		end
 	end
 
@@ -1280,11 +1477,11 @@ local function drawClassic(entry)
 		addPart(parts, distanceText(entry), theme(entry, "distanceColor"))
 	end
 	addDetails(entry, parts)
-	local y = maxY + 1 + gap
+	local y = 1 + gap
 	local spacing = theme(entry, "lineSpacing")
 	for index = 1, #parts, 2 do
 		local main, shadow, bounds = text(entry, DETAIL_KEYS[(index + 1) / 2], root, small, parts[index + 1], parts[index])
-		place(entry, main, shadow, math.floor((minX + maxX - bounds.X) / 2), y)
+		pinText(entry, main, shadow, 0.5, 0, 1, y, 0.5, 0)
 		y += math.ceil(bounds.Y) + spacing
 	end
 end
@@ -1324,7 +1521,7 @@ local function drawPanel(entry, pill)
 	local padding = theme(entry, "panelPadding")
 	local spacing = theme(entry, "panelSpacing")
 	local small = theme(entry, "smallTextSize")
-	local panel = use(entry, "panel", newPanel, entry.esp.gui)
+	local panel = use(entry, "panel", newPanel, entry.anchor)
 	local parent = panel.object
 
 	local rowWidth, rowHeight = 0, 0
@@ -1360,9 +1557,11 @@ local function drawPanel(entry, pill)
 	local width = math.max(if contentWidth > 0 then theme(entry, "panelMinWidth") else 0, textX + contentWidth + endPadding)
 	local top = padding + math.floor((contentHeight - blockHeight) / 2)
 
+	local originX, originY = entry.originX, entry.originY
+	entry.originX, entry.originY = 0, 0
 	if avatar then
 		local radius = if pill then math.floor(avatarSize / 2) else theme(entry, "avatarCornerRadius")
-		avatarImage(entry, "panelAvatar", parent, avatar, padding, padding + math.floor((contentHeight - avatarSize) / 2), avatarSize, radius)
+		avatarImage(entry, "panelAvatar", parent, avatar, 0, padding, 0, padding + math.floor((contentHeight - avatarSize) / 2), avatarSize, radius)
 	end
 	if nameMain then
 		place(entry, nameMain, nameShadow, textX, top + math.floor((rowHeight - nameBounds.Y) / 2))
@@ -1377,9 +1576,14 @@ local function drawPanel(entry, pill)
 	set(panel, "BackgroundColor3", theme(entry, "panelColor"))
 	set(panel, "BackgroundTransparency", guiAlpha(entry, theme(entry, "panelTransparency")))
 	set(panel, "Size", UDim2.fromOffset(width, height))
-	local panelX = math.floor((view.minX + view.maxX - width) / 2)
-	local panelY = claim(entry, panelX, view.minY - 1 - theme(entry, "textGap") - height, width, height)
-	set(panel, "Position", UDim2.fromOffset(panelX, panelY))
+	entry.originX, entry.originY = originX, originY
+	local panelTop = -1 - theme(entry, "textGap") - height
+	if option(entry, "declutter", "enabled") then
+		local panelX = math.floor((view.minX + view.maxX - width) / 2)
+		set(panel, "Position", UDim2.fromOffset(panelX - originX, claim(entry, panelX, view.minY + panelTop, width, height) - originY))
+	else
+		set(panel, "Position", UDim2.new(0.5, -math.floor(width / 2), 0, panelTop))
+	end
 	set(panel, "ZIndex", layerZ(entry, "text", 0))
 	set(panel, "Visible", true)
 	set(panel.corner, "CornerRadius", UDim.new(0, if pill then math.floor(height / 2) else theme(entry, "panelCornerRadius")))
@@ -1403,7 +1607,7 @@ local function drawMinimal(entry)
 		return
 	end
 
-	local root = entry.esp.gui
+	local root = entry.anchor
 	local nameMain, nameShadow, nameBounds
 	local width, height = 0, 0
 	if name then
@@ -1418,14 +1622,18 @@ local function drawMinimal(entry)
 		height = math.max(height, math.ceil(statsBounds.Y))
 	end
 
-	local x = math.floor((view.minX + view.maxX - width) / 2)
-	local bottom = claim(entry, x, view.minY - 1 - theme(entry, "textGap") - height, width, height) + height
+	local xScale, x, bottom = 0.5, -math.floor(width / 2), -1 - theme(entry, "textGap")
+	if option(entry, "declutter", "enabled") then
+		local absoluteX = math.floor((view.minX + view.maxX - width) / 2)
+		xScale, x = 0, absoluteX - view.minX
+		bottom = claim(entry, absoluteX, view.minY + bottom - height, width, height) + height - view.minY
+	end
 	if nameMain then
-		place(entry, nameMain, nameShadow, x, bottom - math.ceil(nameBounds.Y))
+		pinText(entry, nameMain, nameShadow, xScale, x, 0, bottom - math.ceil(nameBounds.Y))
 		x += math.ceil(nameBounds.X) + theme(entry, "panelSpacing")
 	end
 	if statsMain then
-		place(entry, statsMain, statsShadow, x, bottom - math.ceil(statsBounds.Y) - (if nameMain then 1 else 0))
+		pinText(entry, statsMain, statsShadow, xScale, x, 0, bottom - math.ceil(statsBounds.Y) - (if nameMain then 1 else 0))
 	end
 end
 
@@ -1449,67 +1657,112 @@ local function pivotOf(model)
 	return nil
 end
 
-local R6_PARTS = { "Head", "Torso", "Left Arm", "Right Arm", "Left Leg", "Right Leg" }
-
-local function r6Rig(model)
-	local rig = {}
-	for _, name in R6_PARTS do
-		local part = model:FindFirstChild(name)
-		if not (part and part:IsA("BasePart")) then
-			return nil
-		end
-		rig[name] = part
-	end
-	return rig
-end
-
-local R15_JOINTS = {
-	"Neck", "Waist", "LeftShoulder", "LeftElbow", "LeftWrist", "RightShoulder", "RightElbow", "RightWrist",
-	"LeftHip", "LeftKnee", "LeftAnkle", "RightHip", "RightKnee", "RightAnkle",
-}
-local R15_ENDS = { "Head", "LeftHand", "RightHand", "LeftFoot", "RightFoot" }
-
-local function r15Rig(model)
+local function collectJoints(model)
 	local joints = {}
 	for _, descendant in model:GetDescendants() do
 		if descendant:IsA("Motor6D") then
-			joints[descendant.Name] = descendant
+			local part0, part1 = descendant.Part0, descendant.Part1
+			if part0 and part1 then
+				joints[part1] = { motor = descendant, part0 = part0, part1 = part1 }
+			end
+		elseif descendant:IsA("AnimationConstraint") then
+			local attachment0, attachment1 = descendant.Attachment0, descendant.Attachment1
+			local part0 = attachment0 and attachment0.Parent
+			local part1 = attachment1 and attachment1.Parent
+			if part0 and part1 and part0:IsA("BasePart") and part1:IsA("BasePart") and not joints[part1] then
+				joints[part1] = { attachment = attachment0, part0 = part0, part1 = part1 }
+			end
 		end
 	end
-	local rig = { joints = joints }
-	for _, name in R15_JOINTS do
-		if not joints[name] then
-			return nil
+	return joints
+end
+
+local function limbChain(limb, limbOf, motors, children)
+	local start
+	for part, kind in limbOf do
+		if kind == limb and limbOf[motors[part].part0] ~= limb then
+			start = part
+			break
 		end
 	end
-	for _, name in R15_ENDS do
-		local part = model:FindFirstChild(name)
-		if not (part and part:IsA("BasePart")) then
-			return nil
-		end
-		rig[name] = part
+	if not start then
+		return nil
 	end
+	local chain, current = { start }, start
+	while true do
+		local nextPart
+		for _, child in children[current] or {} do
+			if limbOf[child] == limb then
+				nextPart = child
+				break
+			end
+		end
+		if not nextPart then
+			break
+		end
+		table.insert(chain, nextPart)
+		current = nextPart
+	end
+	return chain
+end
+
+local function humanoidRig(model, humanoid)
+	local motors, children, limbOf = collectJoints(model), {}, {}
+	for part, joint in motors do
+		children[joint.part0] = children[joint.part0] or {}
+		table.insert(children[joint.part0], part)
+	end
+	for part in motors do
+		local ok, limb = pcall(humanoid.GetLimb, humanoid, part)
+		if ok and limb ~= Enum.Limb.Unknown then
+			limbOf[part] = limb
+		end
+	end
+	local sizes = {}
+	for part in motors do
+		sizes[part] = part.Size
+	end
+	local torso = limbChain(Enum.Limb.Torso, limbOf, motors, children)
+	if not torso then
+		return nil
+	end
+	local head
+	for part, kind in limbOf do
+		if kind == Enum.Limb.Head then
+			head = part
+			break
+		end
+	end
+	local rig = {
+		motors = motors,
+		torso = torso,
+		head = head,
+		leftArm = limbChain(Enum.Limb.LeftArm, limbOf, motors, children),
+		rightArm = limbChain(Enum.Limb.RightArm, limbOf, motors, children),
+		leftLeg = limbChain(Enum.Limb.LeftLeg, limbOf, motors, children),
+		rightLeg = limbChain(Enum.Limb.RightLeg, limbOf, motors, children),
+		frames = {},
+		sizes = sizes,
+	}
+	rig.paths = rigPaths(rig)
 	return rig
 end
 
-local function skeletonOf(model)
-	local motors, children = {}, {}
-	for _, descendant in model:GetDescendants() do
-		if descendant:IsA("Motor6D") and descendant.Part0 and descendant.Part1 then
-			table.insert(motors, descendant)
-			children[descendant.Part0] = children[descendant.Part0] or {}
-			table.insert(children[descendant.Part0], descendant)
-		end
+local function skeletonOf(model, root)
+	local joints, children = collectJoints(model), {}
+	for _, joint in joints do
+		children[joint.part0] = children[joint.part0] or {}
+		table.insert(children[joint.part0], joint)
 	end
 	local bones = {}
-	for _, motor in motors do
-		local childMotors = children[motor.Part1]
-		if childMotors then
-			for _, child in childMotors do
-				table.insert(bones, { motor, child })
+	for _, joint in joints do
+		local childJoints = children[joint.part1]
+		if childJoints then
+			for _, child in childJoints do
+				table.insert(bones, { joint, child })
 			end
-		elseif motor.Part0.Name ~= "HumanoidRootPart" then
-			table.insert(bones, { motor, false })
+		elseif joint.part0 ~= root then
+			table.insert(bones, { joint, false })
 		end
 	end
 	return bones
@@ -1518,60 +1771,170 @@ end
 local function refreshParts(entry, model)
 	local now = os.clock()
 	if entry.partsModel ~= model or now - entry.partsAt > PARTS_REFRESH then
-		entry.parts = entry.accessors.parts(entry.target, model)
-		local humanoid = humanoidOf(model)
-		local wantsSkeleton = humanoid and option(entry, "skeleton", "enabled")
-		local isR6 = wantsSkeleton and humanoid.RigType == Enum.HumanoidRigType.R6
-		entry.r6 = if isR6 then r6Rig(model) else nil
-		entry.r15 = if wantsSkeleton and not isR6 then r15Rig(model) else nil
-		entry.bones = if wantsSkeleton and not entry.r6 and not entry.r15 then skeletonOf(model) else nil
+		local parts = entry.accessors.parts(entry.target, model)
+		local halves = table.create(#parts)
+		for index, part in parts do
+			halves[index] = part.Size / 2
+		end
+		entry.parts, entry.halves = parts, halves
 		entry.partsModel, entry.partsAt = model, now
+		local humanoid = humanoidOf(model)
+		if entry.rigModel ~= model or now - entry.rigAt > RIG_REFRESH then
+			entry.rigModel, entry.rigAt = model, now
+			entry.rig = if humanoid then humanoidRig(model, humanoid) else nil
+			entry.bones = if humanoid and not entry.rig then skeletonOf(model, humanoid.RootPart) else nil
+			local head = entry.rig and entry.rig.head or model:FindFirstChild("Head")
+			entry.head = if head and head:IsA("BasePart") then head else nil
+		end
 	end
 	return entry.parts
 end
 
-local function measure(entry, model, camera, pivot)
-	local view = entry.view
-	local low2, high2
-	local wants3d = option(entry, "box", "enabled") and option(entry, "box", "style") == "3d"
-	local low3, high3
-	local inFront = true
-	for _, part in refreshParts(entry, model) do
+local function localBounds(parts, pivot)
+	local low, high
+	for _, part in parts do
 		if not part.Parent then
 			continue
 		end
-		local cframe, half = part.CFrame, part.Size / 2
+		local half = part.Size / 2
+		local relative = pivot:ToObjectSpace(part.CFrame)
+		local center = relative.Position
+		local a, b, c = relative.XVector * half.X, relative.YVector * half.Y, relative.ZVector * half.Z
 		for _, sign in CORNERS do
-			local world = cframe * (half * sign)
-			local point, front = screen(world)
-			inFront = inFront and front
-			low2 = if low2 then low2:Min(point) else point
-			high2 = if high2 then high2:Max(point) else point
-			if wants3d then
-				local localPoint = pivot:PointToObjectSpace(world)
-				low3 = if low3 then low3:Min(localPoint) else localPoint
-				high3 = if high3 then high3:Max(localPoint) else localPoint
+			local point = center + a * sign.X + b * sign.Y + c * sign.Z
+			low = if low then low:Min(point) else point
+			high = if high then high:Max(point) else point
+		end
+	end
+	return low, high
+end
+
+local function projectBox(cframe, low, high, corners)
+	local inverse, centerX, centerY, scale = projection.inverse, projection.centerX, projection.centerY, projection.scale
+	local relative = inverse * cframe
+	local minX, minY, maxX, maxY = math.huge, math.huge, -math.huge, -math.huge
+	local inFront = true
+	local middle, extent = (low + high) / 2, (high - low) / 2
+	for index, sign in CORNERS do
+		local corner = relative * (middle + extent * sign)
+		local depth = -corner.Z
+		if depth <= 0 then
+			inFront = false
+			continue
+		end
+		local x, y = centerX + corner.X * scale / depth, centerY - corner.Y * scale / depth
+		if corners then
+			corners[index] = Vector2.new(x, y)
+		end
+		minX, maxX = math.min(minX, x), math.max(maxX, x)
+		minY, maxY = math.min(minY, y), math.max(maxY, y)
+	end
+	return inFront, minX, minY, maxX, maxY
+end
+
+local bounds = {}
+
+local function extend(point)
+	local depth = -point.Z
+	if depth <= 0 then
+		bounds.behind = true
+		return
+	end
+	local u, v = point.X / depth, point.Y / depth
+	if u < bounds.minU then
+		bounds.minU = u
+	end
+	if u > bounds.maxU then
+		bounds.maxU = u
+	end
+	if v < bounds.minV then
+		bounds.minV = v
+	end
+	if v > bounds.maxV then
+		bounds.maxV = v
+	end
+end
+
+local function exactBounds(parts, halves)
+	local inverse = projection.inverse
+	bounds.minU, bounds.maxU, bounds.minV, bounds.maxV, bounds.behind = math.huge, -math.huge, math.huge, -math.huge, false
+	for index, part in parts do
+		local half = halves[index]
+		local relative = inverse * part.CFrame
+		local center = relative.Position
+		local a, b, c = relative.XVector * half.X, relative.YVector * half.Y, relative.ZVector * half.Z
+		local plus, minus, near, far = a + b, a - b, center + c, center - c
+		extend(near + plus)
+		extend(far + plus)
+		extend(near - plus)
+		extend(far - plus)
+		extend(near + minus)
+		extend(far + minus)
+		extend(near - minus)
+		extend(far - minus)
+	end
+	if bounds.minU == math.huge then
+		return not bounds.behind, math.huge, math.huge, -math.huge, -math.huge
+	end
+	local centerX, centerY, scale = projection.centerX, projection.centerY, projection.scale
+	return not bounds.behind, centerX + bounds.minU * scale, centerY - bounds.maxV * scale, centerX + bounds.maxU * scale, centerY - bounds.minV * scale
+end
+
+local function measure(entry, model, camera, pivot)
+	local view = entry.view
+	local parts = entry.parts
+	local now = os.clock()
+	if entry.localModel ~= model or now - entry.localAt > LOCAL_BOUNDS_REFRESH then
+		entry.localLow, entry.localHigh = localBounds(parts, pivot)
+		entry.localModel, entry.localAt = model, now
+		entry.radius = if entry.localLow then math.max(entry.localLow.Magnitude, entry.localHigh.Magnitude) else 0
+	end
+	local low, high, radius = entry.localLow, entry.localHigh, entry.radius
+	local viewport = projection.viewport
+	local wants3d = option(entry, "box", "enabled") and option(entry, "box", "style") == "3d"
+	view.corners3d = nil
+
+	local relative = projection.inverse * pivot.Position
+	local depth = -relative.Z
+	if low then
+		if depth + radius <= 0 then
+			view.onScreen = false
+			return
+		end
+		if depth - radius > 0 then
+			local spread = projection.scale * radius / (depth - radius)
+			local x = projection.centerX + relative.X * projection.scale / depth
+			local y = projection.centerY - relative.Y * projection.scale / depth
+			if x + spread < 0 or x - spread > viewport.X or y + spread < 0 or y - spread > viewport.Y then
+				view.onScreen = false
+				return
 			end
 		end
 	end
 
-	view.corners3d = nil
-	if not low2 then
-		low2, inFront = screen(pivot.Position)
-		high2 = low2
-	elseif low3 and inFront then
-		local center, extent = (low3 + high3) / 2, (high3 - low3) / 2
-		local corners = view.cornerBuffer
-		for index, sign in CORNERS do
-			corners[index] = screen(pivot * (center + extent * sign))
+	local inFront, minX, minY, maxX, maxY
+	local coarse = low and depth > radius and (high.Y - low.Y) * projection.scale / depth < LOD_PIXELS
+	if coarse then
+		inFront, minX, minY, maxX, maxY = projectBox(pivot, low, high, if wants3d then view.cornerBuffer else nil)
+		if wants3d and inFront then
+			view.corners3d = view.cornerBuffer
 		end
-		view.corners3d = corners
+	else
+		inFront, minX, minY, maxX, maxY = exactBounds(parts, entry.halves)
+		if wants3d and low and inFront then
+			projectBox(pivot, low, high, view.cornerBuffer)
+			view.corners3d = view.cornerBuffer
+		end
 	end
 
-	view.minX, view.minY = math.floor(low2.X), math.floor(low2.Y)
-	view.maxX, view.maxY = math.ceil(high2.X), math.ceil(high2.Y)
-	local viewport = camera.ViewportSize
-	view.onScreen = inFront and high2.X >= 0 and low2.X <= viewport.X and high2.Y >= 0 and low2.Y <= viewport.Y
+	if minX == math.huge then
+		local point, front = screen(pivot.Position)
+		inFront = front
+		minX, minY, maxX, maxY = point.X, point.Y, point.X, point.Y
+	end
+	view.minX, view.minY = math.floor(minX), math.floor(minY)
+	view.maxX, view.maxY = math.ceil(maxX), math.ceil(maxY)
+	view.onScreen = inFront and maxX >= 0 and minX <= viewport.X and maxY >= 0 and minY <= viewport.Y
 end
 
 local raycastParams = RaycastParams.new()
@@ -1620,21 +1983,26 @@ local function describe(entry, camera, origin, from, deltaTime)
 		return false
 	end
 
-	local head = if model:IsA("Model") then model:FindFirstChild("Head") else nil
-	view.head = if head and head:IsA("BasePart") then head else nil
+	refreshParts(entry, model)
+	view.head = if entry.head and entry.head.Parent then entry.head else nil
 	if setting(entry, "visibilityCheck") and occluded(entry, origin, model, if view.head then view.head.Position else view.position) then
 		table.insert(overlays, 1, entry.group.settings.occluded)
 	end
 
-	view.name = tostring(accessors.name(target, model) or "")
-	view.username = if entry.isPlayer then target.Name else nil
-	view.avatar = accessors.avatar(target, model)
-	local weapon = accessors.weapon(target, model)
-	view.weapon = if weapon then tostring(weapon) else nil
-	local teamName, teamColor = accessors.team(target, model)
-	view.teamName = if teamName then tostring(teamName) else nil
-	view.teamColor = if typeof(teamColor) == "Color3" then teamColor else nil
-	view.tags = accessors.tags(target, model)
+	local now = os.clock()
+	if now >= entry.infoAt or view.infoModel ~= model then
+		entry.infoAt = now + INFO_INTERVAL * (0.75 + math.random() * 0.5)
+		view.infoModel = model
+		view.name = tostring(accessors.name(target, model) or "")
+		view.username = if entry.isPlayer then target.Name else nil
+		view.avatar = accessors.avatar(target, model)
+		local weapon = accessors.weapon(target, model)
+		view.weapon = if weapon then tostring(weapon) else nil
+		local teamName, teamColor = accessors.team(target, model)
+		view.teamName = if teamName then tostring(teamName) else nil
+		view.teamColor = if typeof(teamColor) == "Color3" then teamColor else nil
+		view.tags = accessors.tags(target, model)
+	end
 	view.health, view.maxHealth = health, maxHealth or 100
 	view.fraction = nil
 	if health then
@@ -1705,14 +2073,74 @@ local function effectiveLayout(entry)
 	return layout
 end
 
+local function newAnchor(parent)
+	local frame = Instance.new("Frame")
+	frame.BackgroundTransparency = 1
+	frame.BorderSizePixel = 0
+	frame.Size = UDim2.new()
+	frame.Visible = false
+	frame.Parent = parent
+	return cached(frame)
+end
+
+local function layoutChanged(entry, layout)
+	local view, last = entry.view, entry.lastLayout
+	local overlays = entry.overlays
+	local health = if view.health then math.round(view.health) else -1
+	local fraction = if view.fraction then math.round(view.fraction * 200) else -1
+	local distance = math.floor(view.distance)
+	local opacity = math.round(entry.opacity * 100)
+	local first, second, third = overlays[1], overlays[2], overlays[3]
+	if last.version == settingsVersion and last.layout == layout
+		and last.health == health and last.maxHealth == view.maxHealth and last.fraction == fraction
+		and last.distance == distance and last.opacity == opacity and last.name == view.name
+		and last.avatar == view.avatar and last.weapon == view.weapon and last.teamName == view.teamName
+		and last.teamColor == view.teamColor and last.tags == view.tags
+		and last.first == first and last.second == second and last.third == third then
+		return false
+	end
+	last.version, last.layout = settingsVersion, layout
+	last.health, last.maxHealth, last.fraction, last.distance, last.opacity = health, view.maxHealth, fraction, distance, opacity
+	last.name, last.avatar, last.weapon, last.teamName, last.teamColor, last.tags = view.name, view.avatar, view.weapon, view.teamName, view.teamColor, view.tags
+	last.first, last.second, last.third = first, second, third
+	return true
+end
+
+local function drawLayout(entry)
+	local view = entry.view
+	local anchor = use(entry, "anchor", newAnchor, entry.esp.gui)
+	set(anchor, "Position", UDim2.fromOffset(view.minX, view.minY))
+	set(anchor, "Size", UDim2.fromOffset(view.maxX - view.minX, view.maxY - view.minY))
+	set(anchor, "ZIndex", layerZ(entry, "text", 0))
+	set(anchor, "Visible", true)
+	entry.anchor = anchor.object
+	entry.originX, entry.originY = view.minX, view.minY
+	local layout = effectiveLayout(entry)
+	local items = entry.layoutItems
+	if not entry.staleBounds and not option(entry, "declutter", "enabled") and not layoutChanged(entry, layout) then
+		local tick = entry.tick
+		for _, item in items do
+			item.tick = tick
+		end
+		return
+	end
+	table.clear(items)
+	entry.staleBounds = false
+	entry.recording = items
+	LAYOUTS[layout](entry)
+	entry.recording = nil
+end
+
 local function drawEntry(entry, camera, viewport, mouse)
 	local view = entry.view
 	if view.onScreen then
 		drawBox(entry)
 		drawTracer(entry, viewport, mouse)
-		drawSkeleton(entry, camera)
-		drawHead(entry, camera)
-		LAYOUTS[effectiveLayout(entry)](entry)
+		if not (option(entry, "shrink", "enabled") and view.distance > option(entry, "shrink", "detailBeyond")) then
+			drawSkeleton(entry, camera)
+			drawHead(entry, camera)
+		end
+		drawLayout(entry)
 	elseif option(entry, "arrow", "enabled") then
 		drawArrow(entry, camera, viewport)
 	end
@@ -1822,17 +2250,22 @@ function Group:add(target, accessors)
 		elements = {},
 		overlays = {},
 		detailBuffer = {},
+		layoutItems = {},
+		lastLayout = {},
+		originX = 0,
+		originY = 0,
+		labels = {},
 		partsBuffer = {},
-		segmentBuffer = {},
-		armBuffer = {},
-		projectBuffer = {},
-		frontBuffer = {},
 		styles = {},
 		view = { cornerBuffer = {} },
 		tick = 0,
 		zBase = 0,
 		opacity = 1,
 		partsAt = -math.huge,
+		rigAt = -math.huge,
+		infoAt = -math.huge,
+		localAt = -math.huge,
+		radius = 0,
 		rayAt = -math.huge,
 	}
 	self.entries[target] = entry
@@ -1934,10 +2367,12 @@ function Esp:render(deltaTime)
 	local chams = self.chamsBuffer
 	table.clear(chams)
 	if camera and self.enabled then
+		measureLabels(self)
 		local origin = camera.CFrame.Position
 		updateProjection(camera)
 		local character = LocalPlayer.Character
-		local root = character and character:FindFirstChild("HumanoidRootPart")
+		local localHumanoid = character and character:FindFirstChildOfClass("Humanoid")
+		local root = localHumanoid and localHumanoid.RootPart
 		local from = if root then root.Position else origin
 		local viewport = camera.ViewportSize
 		local mouse = UserInputService:GetMouseLocation()

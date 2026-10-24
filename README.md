@@ -56,13 +56,13 @@ esp:unload()
 | `distance` | off, `unit "studs"` | `studs`, `meters` |
 | `weapon`, `team`, `tags` | off | extra lines (classic) or a details row (card) |
 | `tracer` | off, `origin "bottom"`, `target "bottom"` | origin: `bottom`, `center`, `top`, `mouse`; target: `bottom`, `center`, `top` (box top), `head` (the head itself, or the box top when there is none) |
-| `skeleton` | off | R6 and R15 draw a head line, spine, shoulder and hip bars and straight limbs; other rigs fall back to their Motor6D chain |
+| `skeleton` | off | any avatar with a Humanoid: limbs come from `Humanoid:GetLimb` and joints from Motor6Ds or AnimationConstraints, so R6, R15, Rthro, scaled and custom bodies all get a head line, spine, shoulder and hip bars and straight limbs; other rigs fall back to their joint chain |
 | `headDot` | off | |
 | `look` | off, `length 6` | line along the head's look direction |
 | `arrow` | off, `radius 160`, `size 12` | points at targets that are off screen or behind you |
 | `chams` | off, `throughWalls true` | Highlight fill and outline, shared pool of 31 for the nearest targets |
 | `declutter` | off, `maxLift 150`, `spacing 2`, `leaders false` | labels are placed nearest-first and overlapping ones step up (at most `maxLift` pixels); `leaders` adds a line from each moved label back to its box |
-| `shrink` | on, `badgeBeyond 60`, `minimalBeyond 120`, `numberBeyond 160` | studs from your HumanoidRootPart: cards become badges, panels become minimal, and classic drops its health number as targets get far away |
+| `shrink` | on, `badgeBeyond 60`, `minimalBeyond 120`, `numberBeyond 160`, `detailBeyond 200` | studs from your HumanoidRootPart: cards become badges, panels become minimal, classic drops its health number, and the skeleton, head dot and look line stop drawing as targets get far away |
 
 `esp:players` also turns on box and health.
 
@@ -153,8 +153,21 @@ Everything is drawn in one ordered stack, bottom to top by these theme keys (ren
 | `healthBarLayer` | 8 |
 | `textLayer` | 9 (names, health numbers, distance, panels, avatars) |
 
-Within a layer, nearer targets draw on top, and two targets only swap when one is at least 2 studs closer, so close targets never flicker. Lines, boxes and rings are drawn as GUI frames so they share this stack with the text; off-screen arrows stay on top.
+Within a layer, nearer targets draw on top, and two targets only swap when one is at least 2 studs closer, so close targets never flicker. Lines, boxes and rings are GUI frames and skeletons are `Path2D` lines, so they share this stack with the text; off-screen arrows stay on top.
 
 A theme value resolves from the overlays, then the team colour (with `useTeamColor`), then the group, then `esp.theme`. Values are type-checked, so `boxColor = "red"` errors.
 
 A target whose accessor errors is hidden and warned about once; the other targets keep drawing.
+
+## Performance
+
+Measured with 100 R6 and R15 dummies on screen, the camera moving, and the frame cap removed. The empty test place takes 0.9 ms a frame on its own.
+
+| Features | Frame time |
+| --- | --- |
+| Names (the default) | 2.5 ms |
+| Corner boxes | 4.4 ms |
+| Skeletons | 4.6 ms |
+| Corner boxes, health bar and number, names, distance and skeletons | 10.3 ms |
+
+Most of what remains is Roblox laying out GUI objects that move, at roughly 1 to 2 microseconds each per frame, so the cost follows how many elements are on screen.
