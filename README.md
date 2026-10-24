@@ -128,7 +128,7 @@ Every line-type element (`box`, `tracer`, `skeleton`, `headDot`, `look`, `arrow`
 | Group | Keys |
 |---|---|
 | Text | `font`, `textSize`, `smallTextSize`, `nameColor`, `distanceColor`, `weaponColor`, `tagColor`, `textShadow`, `shadowColor`, `shadowTransparency`, `shadowOffset` |
-| Outlines | `outlineColor` |
+| Outlines | `outlineColor`, `lineOutlineWidth` (black edge width on each side of lines, rings and arrows; fractional values work) |
 | Box | `boxColor`, `boxThickness`, `boxOutline`, `boxTransparency`, `boxFillColor`, `boxFillTransparency`, `cornerLength` |
 | Lines | `tracer…`, `skeleton…`, `look…`, `arrow…` (Color, Thickness, Outline, Transparency) |
 | Head dot | `headDotColor`, `headDotThickness`, `headDotOutline`, `headDotTransparency`, `headDotFilled` |

@@ -11,6 +11,7 @@ local THEME_DEFAULTS = {
 	shadowTransparency = 0,
 	shadowOffset = Vector2.new(1, 1),
 	outlineColor = Color3.new(0, 0, 0),
+	lineOutlineWidth = 1,
 	boxColor = Color3.new(1, 1, 1),
 	boxFillColor = Color3.new(0, 0, 0),
 	boxFillTransparency = 0.8,
@@ -586,6 +587,7 @@ local function styleOf(entry, feature)
 		style.outlined = theme(entry, keys.outline)
 		style.alpha = drawingAlpha(entry, theme(entry, keys.transparency))
 		style.outlineColor = theme(entry, "outlineColor")
+		style.outlineWidth = theme(entry, "lineOutlineWidth")
 	end
 	return style
 end
@@ -596,12 +598,12 @@ local function line(entry, key, from, to, feature)
 	local delta = to - from
 	local direction = if delta.Magnitude > 1e-3 then delta.Unit else Vector2.zero
 	if style.outlined then
-		local reach = direction * (thickness / 2 + 1)
+		local reach = direction * (thickness / 2 + style.outlineWidth)
 		local border = use(entry, key .. "Border", newDrawing, "Line", 1)
 		set(border, "From", from - reach)
 		set(border, "To", to + reach)
 		set(border, "Color", style.outlineColor)
-		set(border, "Thickness", thickness + 2)
+		set(border, "Thickness", thickness + style.outlineWidth * 2)
 		set(border, "Transparency", alpha)
 		set(border, "Visible", true)
 	end
@@ -630,9 +632,10 @@ local function circle(entry, key, center, radius, feature)
 	local style = styleOf(entry, feature)
 	local thickness, alpha = style.thickness, style.alpha
 	if style.outlined then
-		local offset = thickness / 2 + 0.5
-		ring(entry, key .. "Outer", center, radius + offset, style.outlineColor, 1, alpha, 1)
-		ring(entry, key .. "Inner", center, math.max(radius - offset, 0.5), style.outlineColor, 1, alpha, 1)
+		local width = style.outlineWidth
+		local offset = (thickness + width) / 2
+		ring(entry, key .. "Outer", center, radius + offset, style.outlineColor, width, alpha, 1)
+		ring(entry, key .. "Inner", center, math.max(radius - offset, 0.5), style.outlineColor, width, alpha, 1)
 	end
 	ring(entry, key, center, radius, style.color, thickness, alpha, 2)
 	set(entry.elements[key], "Filled", theme(entry, feature .. "Filled") == true)
@@ -655,7 +658,7 @@ local function triangle(entry, key, a, b, c, feature)
 	local style = styleOf(entry, feature)
 	local alpha = style.alpha
 	if style.outlined then
-		local outerA, outerB, outerC = grow(a, b, c, 1)
+		local outerA, outerB, outerC = grow(a, b, c, style.outlineWidth)
 		local border = use(entry, key .. "Border", newDrawing, "Triangle", 1, true)
 		set(border, "PointA", outerA)
 		set(border, "PointB", outerB)
