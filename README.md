@@ -4,15 +4,13 @@ ESP for players, NPCs, items and anything else in the world, built to one house 
 
 ## Loading
 
-Load a pinned commit so an update never changes a script under you:
-
 ```luau
-local Sightline = loadstring(game:HttpGet("https://raw.githubusercontent.com/mixercodes/sightline-esp/f6b5ac9a5aa6d6377c38bcb081228870c4879af7/sightline.luau"), "sightline")()
+local Sightline = loadstring(game:HttpGet("https://raw.githubusercontent.com/mixercodes/sightline-esp/main/sightline.luau"), "sightline")()
 ```
 
-Swap the hash for a newer commit when you want to update. For local development, put `sightline.luau` in the executor's workspace folder and load it with `readfile("sightline.luau")` instead.
+For local development, put `sightline.luau` in the executor's workspace folder and load it with `readfile("sightline.luau")` instead.
 
-Needs the standard executor functions `Drawing`, `getgenv` and `loadstring` (plus `game:HttpGet` for the pinned loader). `cloneref` and `gethui` are used when present.
+Needs the standard executor functions `Drawing`, `getgenv` and `loadstring` (plus `game:HttpGet` for the loader). `cloneref` and `gethui` are used when present.
 
 `test.luau` spawns six dummies (one per layout) and a crate in front of you and turns on every feature for players. Run it with `sightline.luau` in the workspace folder, and stop it with `getgenv().SightlineTest.stop()`.
 
