@@ -112,6 +112,7 @@ local FRIEND_TAGS = { "Friend" }
 local STUDS_TO_METERS = 0.28
 local MAX_HIGHLIGHTS = 31
 local LIMB_TIP_INSET = 0.1
+local SOLE_INSET = 0.03
 local ARROW_SPREAD = 0.6
 local RIG_REFRESH = 2
 local INFO_INTERVAL = 0.1
@@ -1028,7 +1029,15 @@ local function longAxis(cframe, size, direction)
 	return if dz >= 0 then look else -look, size.Z / 2
 end
 
-local function chainPoints(chain, motors, sizes, frames, points, owners)
+local function reach(cframe, size, origin, direction)
+	local half = size / 2
+	return (cframe.Position - origin):Dot(direction)
+		+ math.abs(cframe.RightVector:Dot(direction)) * half.X
+		+ math.abs(cframe.UpVector:Dot(direction)) * half.Y
+		+ math.abs(cframe.LookVector:Dot(direction)) * half.Z
+end
+
+local function chainPoints(chain, motors, sizes, frames, points, owners, toSole)
 	table.clear(points)
 	table.clear(owners)
 	local first = chain[1]
@@ -1056,7 +1065,9 @@ local function chainPoints(chain, motors, sizes, frames, points, owners)
 		local direction = lastPoint - points[#points - 1]
 		if direction.Magnitude > 1e-3 then
 			local unit = direction.Unit
-			local along = (lastCenter - lastPoint):Dot(unit)
+			local along = if toSole
+				then reach(lastFrame, sizes[last], lastPoint, unit) - SOLE_INSET
+				else (lastCenter - lastPoint):Dot(unit)
 			if along > 0 then
 				table.insert(points, lastPoint + unit * along)
 				table.insert(owners, last)
@@ -1095,16 +1106,16 @@ end
 
 local function rigPaths(rig)
 	local motors, sizes, frames = rig.motors, rig.sizes, {}
-	local function limb(chain)
+	local function limb(chain, toSole)
 		if chain then
-			return chainPoints(chain, motors, sizes, frames, {}, {})
+			return chainPoints(chain, motors, sizes, frames, {}, {}, toSole)
 		end
 		return nil, nil
 	end
-	local leftArm, leftArmOwners = limb(rig.leftArm)
-	local rightArm, rightArmOwners = limb(rig.rightArm)
-	local leftLeg, leftLegOwners = limb(rig.leftLeg)
-	local rightLeg, rightLegOwners = limb(rig.rightLeg)
+	local leftArm, leftArmOwners = limb(rig.leftArm, false)
+	local rightArm, rightArmOwners = limb(rig.rightArm, false)
+	local leftLeg, leftLegOwners = limb(rig.leftLeg, true)
+	local rightLeg, rightLegOwners = limb(rig.rightLeg, true)
 	local spine, spineOwners = {}, {}
 	local function add(point, owner)
 		if point then
