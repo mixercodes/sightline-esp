@@ -110,6 +110,7 @@ local HEADSHOT = "rbxthumb://type=AvatarHeadShot&id=%d&w=60&h=60"
 local FRIEND_TAGS = { "Friend" }
 local STUDS_TO_METERS = 0.28
 local MAX_HIGHLIGHTS = 31
+local LIMB_TIP_INSET = 0.1
 local ORDER_MARGIN = 2
 local Z_STEP = 4
 local LAYER_STEP = 100000
@@ -945,9 +946,9 @@ local function drawTracer(entry, viewport, mouse)
 	line(entry, "tracer", from, to, "tracer")
 end
 
-local function limbEnds(part, inset)
+local function limbEnds(part, topInset)
 	local cframe, half = part.CFrame, part.Size.Y / 2
-	return cframe * Vector3.new(0, half - inset, 0), cframe * Vector3.new(0, inset - half, 0)
+	return cframe * Vector3.new(0, half - topInset, 0), cframe * Vector3.new(0, LIMB_TIP_INSET - half, 0)
 end
 
 local function r6Segments(rig, segments)
