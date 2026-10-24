@@ -18,6 +18,8 @@ local THEME_DEFAULTS = {
 	cornerLength = 0.25,
 	tracerColor = Color3.new(1, 1, 1),
 	skeletonColor = Color3.new(1, 1, 1),
+	skeletonThickness = 1,
+	skeletonOutline = false,
 	headDotColor = Color3.new(1, 1, 1),
 	lookColor = Color3.fromRGB(255, 90, 90),
 	arrowColor = Color3.new(1, 1, 1),
@@ -528,11 +530,14 @@ local function square(entry, key, zIndex, filled, color, transparency, position,
 	set(item, "Visible", true)
 end
 
-local function line(entry, key, from, to, color)
-	local thickness = theme(entry, "lineThickness")
+local function line(entry, key, from, to, color, thickness, outlined)
+	thickness = thickness or theme(entry, "lineThickness")
+	if outlined == nil then
+		outlined = theme(entry, "lineOutline")
+	end
 	local delta = to - from
 	local direction = if delta.Magnitude > 1e-3 then delta.Unit else Vector2.zero
-	if theme(entry, "lineOutline") then
+	if outlined then
 		local reach = direction * (thickness / 2 + 1)
 		local border = use(entry, key .. "Border", newDrawing, "Line", 1)
 		set(border, "From", from - reach)
@@ -836,6 +841,8 @@ local function drawSkeleton(entry, camera)
 		return
 	end
 	local color = theme(entry, "skeletonColor")
+	local thickness = theme(entry, "skeletonThickness")
+	local outlined = theme(entry, "skeletonOutline")
 	local count = 0
 	if entry.r6 then
 		local segments = r6Segments(entry.r6, entry.segmentBuffer)
@@ -844,7 +851,7 @@ local function drawSkeleton(entry, camera)
 			local b, bFront = screen(camera, segments[index + 1])
 			if aFront and bFront then
 				count += 1
-				line(entry, BONE_KEYS[count], a, b, color)
+				line(entry, BONE_KEYS[count], a, b, color, thickness, outlined)
 			end
 		end
 		return
@@ -871,7 +878,7 @@ local function drawSkeleton(entry, camera)
 		local b, bFront = screen(camera, to)
 		if aFront and bFront and count < #BONE_KEYS then
 			count += 1
-			line(entry, BONE_KEYS[count], a, b, color)
+			line(entry, BONE_KEYS[count], a, b, color, thickness, outlined)
 		end
 	end
 end

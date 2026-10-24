@@ -124,7 +124,7 @@ Targets with no parts (attachments, empty models) get text at their position and
 | Text | `font`, `textSize`, `smallTextSize`, `nameColor`, `distanceColor`, `weaponColor`, `tagColor`, `shadowColor`, `shadowTransparency`, `shadowOffset` |
 | Lines | `outlineColor`, `lineThickness`, `lineOutline` |
 | Box | `boxColor`, `boxFillColor`, `boxFillTransparency`, `cornerLength` |
-| Geometry | `tracerColor`, `skeletonColor`, `headDotColor`, `lookColor`, `arrowColor` |
+| Geometry | `tracerColor`, `skeletonColor`, `skeletonThickness`, `skeletonOutline`, `headDotColor`, `lookColor`, `arrowColor` |
 | Chams | `chamsFillColor`, `chamsFillTransparency`, `chamsOutlineColor`, `chamsOutlineTransparency` |
 | Health | `healthColors`, `healthSmoothing`, `barWidth`, `barGap` |
 | Spacing | `textGap`, `lineSpacing` |
