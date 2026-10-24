@@ -60,6 +60,9 @@ for feature, outlined in { box = true, tracer = true, skeleton = false, headDot 
 end
 THEME_DEFAULTS.leaderColor = Color3.fromRGB(200, 200, 210)
 THEME_DEFAULTS.leaderTransparency = 0.4
+for layer, order in { boxFill = 1, tracer = 2, look = 3, skeleton = 4, headDot = 5, box = 6, leader = 7, healthBar = 8, text = 9 } do
+	THEME_DEFAULTS[layer .. "Layer"] = order
+end
 local SETTINGS_DEFAULTS = {
 	enabled = true,
 	layout = "classic",
@@ -108,7 +111,12 @@ local FRIEND_TAGS = { "Friend" }
 local STUDS_TO_METERS = 0.28
 local MAX_HIGHLIGHTS = 31
 local ORDER_MARGIN = 2
-local Z_STEP = 8
+local Z_STEP = 4
+local LAYER_STEP = 100000
+local LAYER_KEYS = {}
+for _, layer in { "boxFill", "tracer", "look", "skeleton", "headDot", "box", "leader", "healthBar", "text" } do
+	LAYER_KEYS[layer] = layer .. "Layer"
+end
 local PARTS_REFRESH = 0.5
 local VISIBILITY_INTERVAL = 0.1
 local SESSION_KEY = "SightlineSession"
@@ -558,14 +566,42 @@ local function newBar(parent)
 	return item
 end
 
-local function square(entry, key, zIndex, filled, color, transparency, position, size)
-	local item = use(entry, key, newDrawing, "Square", zIndex, filled)
-	set(item, "ZIndex", entry.zBase + zIndex)
-	set(item, "Color", color)
-	set(item, "Transparency", drawingAlpha(entry, transparency))
-	set(item, "Thickness", 1)
-	set(item, "Position", position)
-	set(item, "Size", size)
+local function layerZ(entry, layer, sub)
+	return theme(entry, LAYER_KEYS[layer]) * LAYER_STEP + entry.zBase + sub
+end
+
+local function newSegment(parent)
+	local frame = Instance.new("Frame")
+	frame.AnchorPoint = Vector2.new(0.5, 0.5)
+	frame.BorderSizePixel = 0
+	frame.Visible = false
+	frame.Parent = parent
+	return cached(frame)
+end
+
+local function newRing(parent)
+	local frame = Instance.new("Frame")
+	frame.AnchorPoint = Vector2.new(0.5, 0.5)
+	frame.BorderSizePixel = 0
+	frame.Visible = false
+	frame.Parent = parent
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(1, 0)
+	corner.Parent = frame
+	local stroke = Instance.new("UIStroke")
+	stroke.Parent = frame
+	local item = cached(frame)
+	item.stroke = cached(stroke)
+	return item
+end
+
+local function square(entry, key, layer, sub, color, transparency, position, size)
+	local item = use(entry, key, newFrame, entry.esp.gui)
+	set(item, "ZIndex", layerZ(entry, layer, sub))
+	set(item, "BackgroundColor3", color)
+	set(item, "BackgroundTransparency", guiAlpha(entry, transparency))
+	set(item, "Position", UDim2.fromOffset(position.X, position.Y))
+	set(item, "Size", UDim2.fromOffset(size.X, size.Y))
 	set(item, "Visible", true)
 end
 
@@ -591,63 +627,67 @@ local function styleOf(entry, feature)
 		style.color = theme(entry, keys.color)
 		style.thickness = theme(entry, keys.thickness)
 		style.outlined = theme(entry, keys.outline)
-		style.alpha = drawingAlpha(entry, theme(entry, keys.transparency))
+		style.transparency = theme(entry, keys.transparency)
+		style.alpha = guiAlpha(entry, style.transparency)
 		style.outlineColor = theme(entry, "outlineColor")
 		style.outlineWidth = theme(entry, "lineOutlineWidth")
 	end
 	return style
 end
 
-local function line(entry, key, from, to, feature)
-	local style = styleOf(entry, feature)
-	local thickness, alpha = style.thickness, style.alpha
-	local delta = to - from
-	local direction = if delta.Magnitude > 1e-3 then delta.Unit else Vector2.zero
-	if style.outlined then
-		local reach = direction * (thickness / 2 + style.outlineWidth)
-		local border = use(entry, key .. "Border", newDrawing, "Line", 1)
-		set(border, "ZIndex", entry.zBase + 1)
-		set(border, "From", from - reach)
-		set(border, "To", to + reach)
-		set(border, "Color", style.outlineColor)
-		set(border, "Thickness", thickness + style.outlineWidth * 2)
-		set(border, "Transparency", alpha)
-		set(border, "Visible", true)
-	end
-	local reach = direction * (thickness / 2)
-	local main = use(entry, key, newDrawing, "Line", 2)
-	set(main, "ZIndex", entry.zBase + 2)
-	set(main, "From", from - reach)
-	set(main, "To", to + reach)
-	set(main, "Color", style.color)
-	set(main, "Thickness", thickness)
-	set(main, "Transparency", alpha)
-	set(main, "Visible", true)
+local function segment(entry, key, center, length, thickness, rotation, color, alpha, zIndex)
+	local item = use(entry, key, newSegment, entry.esp.gui)
+	set(item, "Position", UDim2.fromOffset(center.X, center.Y))
+	set(item, "Size", UDim2.fromOffset(length, thickness))
+	set(item, "Rotation", rotation)
+	set(item, "BackgroundColor3", color)
+	set(item, "BackgroundTransparency", alpha)
+	set(item, "ZIndex", zIndex)
+	set(item, "Visible", true)
 end
 
-local function ring(entry, key, center, radius, color, thickness, alpha, zIndex)
-	local item = use(entry, key, newDrawing, "Circle", zIndex, false)
-	set(item, "ZIndex", entry.zBase + zIndex)
-	set(item, "Position", center)
-	set(item, "Radius", radius)
-	set(item, "NumSides", 32)
-	set(item, "Color", color)
-	set(item, "Thickness", thickness)
-	set(item, "Transparency", alpha)
+local function line(entry, key, from, to, feature)
+	local style = styleOf(entry, feature)
+	local thickness = math.max(style.thickness, 1)
+	local delta = to - from
+	local length = delta.Magnitude
+	local rotation = math.deg(math.atan2(delta.Y, delta.X))
+	local center = (from + to) / 2
+	local z = layerZ(entry, feature, 0)
+	if style.outlined then
+		local width = style.outlineWidth
+		segment(entry, key .. "Border", center, length + thickness + width * 2, thickness + width * 2, rotation, style.outlineColor, style.alpha, z)
+	end
+	segment(entry, key, center, length + thickness, thickness, rotation, style.color, style.alpha, z + 1)
+end
+
+local function ring(entry, key, center, radius, color, thickness, alpha, zIndex, filled)
+	local item = use(entry, key, newRing, entry.esp.gui)
+	local diameter = math.max(radius, 0) * 2
+	set(item, "Position", UDim2.fromOffset(center.X, center.Y))
+	set(item, "Size", UDim2.fromOffset(diameter, diameter))
+	set(item, "BackgroundColor3", color)
+	set(item, "BackgroundTransparency", if filled then alpha else 1)
+	set(item.stroke, "Color", color)
+	set(item.stroke, "Thickness", thickness)
+	set(item.stroke, "Transparency", alpha)
+	set(item, "ZIndex", zIndex)
 	set(item, "Visible", true)
 end
 
 local function circle(entry, key, center, radius, feature)
 	local style = styleOf(entry, feature)
-	local thickness, alpha = style.thickness, style.alpha
+	local thickness = math.max(style.thickness, 1)
+	local filled = theme(entry, feature .. "Filled") == true
+	local z = layerZ(entry, feature, 0)
 	if style.outlined then
 		local width = style.outlineWidth
-		local offset = (thickness + width) / 2
-		ring(entry, key .. "Outer", center, radius + offset, style.outlineColor, width, alpha, 1)
-		ring(entry, key .. "Inner", center, math.max(radius - offset, 0.5), style.outlineColor, width, alpha, 1)
+		ring(entry, key .. "Outer", center, radius + thickness / 2, style.outlineColor, width, style.alpha, z, false)
+		if not filled then
+			ring(entry, key .. "Inner", center, math.max(radius - thickness / 2 - width, 0), style.outlineColor, width, style.alpha, z, false)
+		end
 	end
-	ring(entry, key, center, radius, style.color, thickness, alpha, 2)
-	set(entry.elements[key], "Filled", theme(entry, feature .. "Filled") == true)
+	ring(entry, key, center, radius - thickness / 2, style.color, thickness, style.alpha, z + 1, filled)
 end
 
 local function grow(a, b, c, amount)
@@ -665,7 +705,7 @@ end
 
 local function triangle(entry, key, a, b, c, feature)
 	local style = styleOf(entry, feature)
-	local alpha = style.alpha
+	local alpha = drawingAlpha(entry, style.transparency)
 	if style.outlined then
 		local outerA, outerB, outerC = grow(a, b, c, style.outlineWidth)
 		local border = use(entry, key .. "Border", newDrawing, "Triangle", 1, true)
@@ -693,7 +733,7 @@ local function styleLabel(entry, item, value, size, color, transparency, zIndex)
 	set(item, "TextSize", size)
 	set(item, "TextColor3", color)
 	set(item, "TextTransparency", guiAlpha(entry, transparency))
-	set(item, "ZIndex", entry.zBase + zIndex)
+	set(item, "ZIndex", layerZ(entry, "text", zIndex))
 	set(item, "Visible", true)
 end
 
@@ -702,10 +742,10 @@ local function text(entry, key, parent, size, color, plain, rich)
 	local shadow
 	if theme(entry, "textShadow") then
 		shadow = use(entry, key .. "Shadow", newLabel, parent)
-		styleLabel(entry, shadow, escaped, size, theme(entry, "shadowColor"), theme(entry, "shadowTransparency"), 3)
+		styleLabel(entry, shadow, escaped, size, theme(entry, "shadowColor"), theme(entry, "shadowTransparency"), 1)
 	end
 	local main = use(entry, key, newLabel, parent)
-	styleLabel(entry, main, rich or escaped, size, color, 0, 4)
+	styleLabel(entry, main, rich or escaped, size, color, 0, 2)
 	return main, shadow, main.object.TextBounds
 end
 
@@ -736,7 +776,7 @@ local function avatarImage(entry, key, parent, image, x, y, size, radius)
 	set(item, "BackgroundTransparency", guiAlpha(entry, theme(entry, "avatarBackgroundTransparency")))
 	set(item, "Position", UDim2.fromOffset(x, y))
 	set(item, "Size", UDim2.fromOffset(size, size))
-	set(item, "ZIndex", entry.zBase + 4)
+	set(item, "ZIndex", layerZ(entry, "text", 2))
 	set(item, "Visible", true)
 	set(item.corner, "CornerRadius", UDim.new(0, radius))
 end
@@ -843,7 +883,7 @@ local function drawBox(entry)
 	end
 	local position, size = Vector2.new(view.minX, view.minY), Vector2.new(width, height)
 	if option(entry, "box", "filled") then
-		square(entry, "boxFill", 0, true, theme(entry, "boxFillColor"), theme(entry, "boxFillTransparency"), position, size)
+		square(entry, "boxFill", "boxFill", 0, theme(entry, "boxFillColor"), theme(entry, "boxFillTransparency"), position, size)
 	end
 
 	local thickness = math.max(1, math.floor(theme(entry, "boxThickness")))
@@ -872,9 +912,9 @@ local function drawBox(entry)
 		local armPosition = Vector2.new(arms[base + 1], arms[base + 2])
 		local armSize = Vector2.new(arms[base + 3], arms[base + 4])
 		if outlined then
-			square(entry, CORNER_OUTLINE_KEYS[index], 1, true, outline, transparency, armPosition - Vector2.one, armSize + Vector2.one * 2)
+			square(entry, CORNER_OUTLINE_KEYS[index], "box", 0, outline, transparency, armPosition - Vector2.one, armSize + Vector2.one * 2)
 		end
-		square(entry, CORNER_KEYS[index], 2, true, color, transparency, armPosition, armSize)
+		square(entry, CORNER_KEYS[index], "box", 1, color, transparency, armPosition, armSize)
 	end
 end
 
@@ -1105,7 +1145,7 @@ local function drawSideBar(entry)
 	set(item, "Size", UDim2.fromOffset(width + border * 2, height + border * 2))
 	set(item, "BackgroundColor3", theme(entry, "outlineColor"))
 	set(item, "BackgroundTransparency", guiAlpha(entry, if border > 0 then 0 else 1))
-	set(item, "ZIndex", entry.zBase + 3)
+	set(item, "ZIndex", layerZ(entry, "healthBar", 0))
 	set(item, "Visible", true)
 	set(item.back, "Position", UDim2.fromOffset(border, border))
 	set(item.back, "Size", UDim2.fromOffset(width, height))
@@ -1135,7 +1175,7 @@ local function leaderBar(entry, key, x, top, bottom, width, color, transparency,
 	set(item, "Size", UDim2.fromOffset(width, math.max(bottom - top, 0)))
 	set(item, "BackgroundColor3", color)
 	set(item, "BackgroundTransparency", guiAlpha(entry, transparency))
-	set(item, "ZIndex", entry.zBase + zIndex)
+	set(item, "ZIndex", layerZ(entry, "leader", zIndex))
 	set(item, "Visible", true)
 end
 
@@ -1339,7 +1379,7 @@ local function drawPanel(entry, pill)
 	local panelX = math.floor((view.minX + view.maxX - width) / 2)
 	local panelY = claim(entry, panelX, view.minY - 1 - theme(entry, "textGap") - height, width, height)
 	set(panel, "Position", UDim2.fromOffset(panelX, panelY))
-	set(panel, "ZIndex", entry.zBase + 2)
+	set(panel, "ZIndex", layerZ(entry, "text", 0))
 	set(panel, "Visible", true)
 	set(panel.corner, "CornerRadius", UDim.new(0, if pill then math.floor(height / 2) else theme(entry, "panelCornerRadius")))
 	set(panel.stroke, "Color", theme(entry, "panelStrokeColor"))

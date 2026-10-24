@@ -137,7 +137,23 @@ Every line-type element (`box`, `tracer`, `skeleton`, `headDot`, `look`, `arrow`
 | Avatar | `avatarSize`, `avatarCornerRadius`, `avatarBackgroundColor`, `avatarBackgroundTransparency` |
 | Panels | `panelColor`, `panelTransparency`, `panelCornerRadius`, `panelPadding`, `panelSpacing`, `panelMinWidth`, `panelStrokeColor`, `panelStrokeTransparency`, `panelStrokeThickness` |
 
-Everything a target draws is layered by distance from your HumanoidRootPart, nearest on top, and two targets only swap layers when one is at least 2 studs closer, so close targets never flicker over each other.
+### Layers
+
+Everything is drawn in one ordered stack, bottom to top by these theme keys (renumber them to reorder):
+
+| Key | Default |
+|---|---|
+| `boxFillLayer` | 1 |
+| `tracerLayer` | 2 |
+| `lookLayer` | 3 |
+| `skeletonLayer` | 4 |
+| `headDotLayer` | 5 |
+| `boxLayer` | 6 |
+| `leaderLayer` | 7 |
+| `healthBarLayer` | 8 |
+| `textLayer` | 9 (names, health numbers, distance, panels, avatars) |
+
+Within a layer, nearer targets draw on top, and two targets only swap when one is at least 2 studs closer, so close targets never flicker. Lines, boxes and rings are drawn as GUI frames so they share this stack with the text; off-screen arrows stay on top.
 
 A theme value resolves from the overlays, then the team colour (with `useTeamColor`), then the group, then `esp.theme`. Values are type-checked, so `boxColor = "red"` errors.
 
