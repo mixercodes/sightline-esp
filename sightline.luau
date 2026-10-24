@@ -84,7 +84,7 @@ local SETTINGS_DEFAULTS = {
 	arrow = { enabled = false, radius = 160, size = 12 },
 	chams = { enabled = false, throughWalls = true },
 	shrink = { enabled = true, badgeBeyond = 60, minimalBeyond = 120, numberBeyond = 160 },
-	declutter = { enabled = true, maxLift = 150, spacing = 2, leaders = false },
+	declutter = { enabled = false, maxLift = 150, spacing = 2, leaders = false },
 }
 local CHOICES = {
 	layout = { classic = true, card = true, badge = true, minimal = true },

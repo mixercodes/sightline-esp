@@ -63,7 +63,7 @@ esp:unload()
 | `look` | off, `length 6` | line along the head's look direction |
 | `arrow` | off, `radius 160`, `size 12` | points at targets that are off screen or behind you |
 | `chams` | off, `throughWalls true` | Highlight fill and outline, shared pool of 31 for the nearest targets |
-| `declutter` | on, `maxLift 150`, `spacing 2`, `leaders false` | labels are placed nearest-first and overlapping ones step up (at most `maxLift` pixels); `leaders` adds a line from each moved label back to its box |
+| `declutter` | off, `maxLift 150`, `spacing 2`, `leaders false` | labels are placed nearest-first and overlapping ones step up (at most `maxLift` pixels); `leaders` adds a line from each moved label back to its box |
 | `shrink` | on, `badgeBeyond 60`, `minimalBeyond 120`, `numberBeyond 160` | studs from your HumanoidRootPart: cards become badges, panels become minimal, and classic drops its health number as targets get far away |
 
 `esp:players` also turns on box and health.
