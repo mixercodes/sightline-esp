@@ -48,13 +48,13 @@ esp:unload()
 | `fade` | off, `start 300`, `finish 1500`, `minOpacity 0.25` | fades everything with distance |
 | `focus` | off, `radius 150` | the target nearest the mouse gets the `focused` overlay |
 | `box` | off, `style "full"`, `filled false` | styles: `full`, `corners`, `3d` |
-| `health` | off, `style "bar"`, `format "value"`, `gradient true` | `bar`, `number`, or `both` for the bar and the number together; formats: `value`, `percent`, `fraction` |
+| `health` | off, `style "bar"`, `format "value"`, `gradient true`, `side "left"` | `bar`, `number`, or `both` for the bar and the number together; formats: `value`, `percent`, `fraction`; side: `left`, `right` |
 | `name` | on, `style "display"` | `display`, `username`, `both` |
 | `avatar` | off | headshot next to the name |
 | `distance` | off, `unit "studs"` | `studs`, `meters` |
 | `weapon`, `team`, `tags` | off | extra lines (classic) or a details row (card) |
-| `tracer` | off, `origin "bottom"` | `bottom`, `center`, `top`, `mouse` |
-| `skeleton` | off | R6 follows each limb's centre line (spine, shoulder and hip bars, straight limbs); R15 and custom rigs are built from their Motor6Ds |
+| `tracer` | off, `origin "bottom"`, `target "bottom"` | origin: `bottom`, `center`, `top`, `mouse`; target: `bottom`, `center`, `head` |
+| `skeleton` | off | R6 and R15 draw a head line, spine, shoulder and hip bars and straight limbs; other rigs fall back to their Motor6D chain |
 | `headDot` | off | |
 | `look` | off, `length 6` | line along the head's look direction |
 | `arrow` | off, `radius 160`, `size 12` | points at targets that are off screen or behind you |
@@ -119,17 +119,20 @@ Targets with no parts (attachments, empty models) get text at their position and
 
 ## Theme
 
+Every line-type element (`box`, `tracer`, `skeleton`, `headDot`, `look`, `arrow`) has the same four keys: `<element>Color`, `<element>Thickness`, `<element>Outline` and `<element>Transparency`. Outlines are on by default except for the skeleton.
+
 | Group | Keys |
 |---|---|
-| Text | `font`, `textSize`, `smallTextSize`, `nameColor`, `distanceColor`, `weaponColor`, `tagColor`, `shadowColor`, `shadowTransparency`, `shadowOffset` |
-| Lines | `outlineColor`, `lineThickness`, `lineOutline` |
-| Box | `boxColor`, `boxFillColor`, `boxFillTransparency`, `cornerLength` |
-| Geometry | `tracerColor`, `skeletonColor`, `skeletonThickness`, `skeletonOutline`, `headDotColor`, `lookColor`, `arrowColor` |
+| Text | `font`, `textSize`, `smallTextSize`, `nameColor`, `distanceColor`, `weaponColor`, `tagColor`, `textShadow`, `shadowColor`, `shadowTransparency`, `shadowOffset` |
+| Outlines | `outlineColor` |
+| Box | `boxColor`, `boxThickness`, `boxOutline`, `boxTransparency`, `boxFillColor`, `boxFillTransparency`, `cornerLength` |
+| Lines | `tracer…`, `skeleton…`, `look…`, `arrow…` (Color, Thickness, Outline, Transparency) |
+| Head dot | `headDotColor`, `headDotThickness`, `headDotOutline`, `headDotTransparency`, `headDotFilled` |
 | Chams | `chamsFillColor`, `chamsFillTransparency`, `chamsOutlineColor`, `chamsOutlineTransparency` |
-| Health | `healthColors`, `healthSmoothing`, `barWidth`, `barGap` |
+| Health | `healthColors`, `healthSmoothing`, `barWidth`, `barGap`, `barOutline`, `barBackgroundColor`, `barBackgroundTransparency` |
 | Spacing | `textGap`, `lineSpacing` |
 | Avatar | `avatarSize`, `avatarCornerRadius`, `avatarBackgroundColor`, `avatarBackgroundTransparency` |
-| Panels | `panelColor`, `panelTransparency`, `panelCornerRadius`, `panelPadding`, `panelSpacing`, `panelMinWidth` |
+| Panels | `panelColor`, `panelTransparency`, `panelCornerRadius`, `panelPadding`, `panelSpacing`, `panelMinWidth`, `panelStrokeColor`, `panelStrokeTransparency`, `panelStrokeThickness` |
 
 A theme value resolves from the overlays, then the team colour (with `useTeamColor`), then the group, then `esp.theme`. Values are type-checked, so `boxColor = "red"` errors.
 

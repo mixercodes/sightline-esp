@@ -6,21 +6,19 @@ local THEME_DEFAULTS = {
 	distanceColor = Color3.fromRGB(200, 200, 210),
 	weaponColor = Color3.fromRGB(200, 200, 210),
 	tagColor = Color3.fromRGB(255, 200, 80),
+	textShadow = true,
 	shadowColor = Color3.new(0, 0, 0),
 	shadowTransparency = 0,
 	shadowOffset = Vector2.new(1, 1),
 	outlineColor = Color3.new(0, 0, 0),
-	lineThickness = 1,
-	lineOutline = true,
 	boxColor = Color3.new(1, 1, 1),
 	boxFillColor = Color3.new(0, 0, 0),
 	boxFillTransparency = 0.8,
 	cornerLength = 0.25,
 	tracerColor = Color3.new(1, 1, 1),
 	skeletonColor = Color3.new(1, 1, 1),
-	skeletonThickness = 1,
-	skeletonOutline = false,
 	headDotColor = Color3.new(1, 1, 1),
+	headDotFilled = false,
 	lookColor = Color3.fromRGB(255, 90, 90),
 	arrowColor = Color3.new(1, 1, 1),
 	chamsFillColor = Color3.fromRGB(255, 70, 70),
@@ -35,6 +33,9 @@ local THEME_DEFAULTS = {
 	healthSmoothing = 10,
 	barWidth = 1,
 	barGap = 4,
+	barOutline = true,
+	barBackgroundColor = Color3.new(0, 0, 0),
+	barBackgroundTransparency = 0,
 	textGap = 3,
 	lineSpacing = 1,
 	avatarSize = 18,
@@ -47,7 +48,15 @@ local THEME_DEFAULTS = {
 	panelPadding = 5,
 	panelSpacing = 6,
 	panelMinWidth = 48,
+	panelStrokeColor = Color3.fromRGB(255, 255, 255),
+	panelStrokeTransparency = 1,
+	panelStrokeThickness = 1,
 }
+for feature, outlined in { box = true, tracer = true, skeleton = false, headDot = true, look = true, arrow = true } do
+	THEME_DEFAULTS[feature .. "Thickness"] = 1
+	THEME_DEFAULTS[feature .. "Outline"] = outlined
+	THEME_DEFAULTS[feature .. "Transparency"] = 0
+end
 local SETTINGS_DEFAULTS = {
 	enabled = true,
 	layout = "classic",
@@ -58,14 +67,14 @@ local SETTINGS_DEFAULTS = {
 	fade = { enabled = false, start = 300, finish = 1500, minOpacity = 0.25 },
 	focus = { enabled = false, radius = 150 },
 	box = { enabled = false, style = "full", filled = false },
-	health = { enabled = false, style = "bar", format = "value", gradient = true },
+	health = { enabled = false, style = "bar", format = "value", gradient = true, side = "left" },
 	name = { enabled = true, style = "display" },
 	avatar = { enabled = false },
 	distance = { enabled = false, unit = "studs" },
 	weapon = { enabled = false },
 	team = { enabled = false },
 	tags = { enabled = false },
-	tracer = { enabled = false, origin = "bottom" },
+	tracer = { enabled = false, origin = "bottom", target = "bottom" },
 	skeleton = { enabled = false },
 	headDot = { enabled = false },
 	look = { enabled = false, length = 6 },
@@ -81,6 +90,8 @@ local CHOICES = {
 	["name.style"] = { display = true, username = true, both = true },
 	["distance.unit"] = { studs = true, meters = true },
 	["tracer.origin"] = { bottom = true, center = true, top = true, mouse = true },
+	["tracer.target"] = { bottom = true, center = true, head = true },
+	["health.side"] = { left = true, right = true },
 }
 local OVERLAY_KEYS = { theme = true, variants = true, occluded = true, focused = true }
 local TEAM_TINTED = {
@@ -489,6 +500,15 @@ local function newFrame(parent)
 	return item
 end
 
+local function newPanel(parent)
+	local item = newFrame(parent)
+	local stroke = Instance.new("UIStroke")
+	stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	stroke.Parent = item.object
+	item.stroke = cached(stroke)
+	return item
+end
+
 local function newImage(parent)
 	local image = Instance.new("ImageLabel")
 	image.BackgroundTransparency = 1
@@ -503,11 +523,15 @@ end
 
 local function newBar(parent)
 	local item = newFrame(parent)
+	local back = Instance.new("Frame")
+	back.BorderSizePixel = 0
+	back.Parent = item.object
 	local clip = Instance.new("Frame")
 	clip.BackgroundTransparency = 1
 	clip.BorderSizePixel = 0
 	clip.ClipsDescendants = true
-	clip.Parent = item.object
+	clip.Parent = back
+	item.back = cached(back)
 	local fill = Instance.new("Frame")
 	fill.BorderSizePixel = 0
 	fill.Parent = clip
@@ -530,53 +554,53 @@ local function square(entry, key, zIndex, filled, color, transparency, position,
 	set(item, "Visible", true)
 end
 
-local function line(entry, key, from, to, color, thickness, outlined)
-	thickness = thickness or theme(entry, "lineThickness")
-	if outlined == nil then
-		outlined = theme(entry, "lineOutline")
-	end
+local function line(entry, key, from, to, feature)
+	local thickness = theme(entry, feature .. "Thickness")
+	local alpha = drawingAlpha(entry, theme(entry, feature .. "Transparency"))
 	local delta = to - from
 	local direction = if delta.Magnitude > 1e-3 then delta.Unit else Vector2.zero
-	if outlined then
+	if theme(entry, feature .. "Outline") then
 		local reach = direction * (thickness / 2 + 1)
 		local border = use(entry, key .. "Border", newDrawing, "Line", 1)
 		set(border, "From", from - reach)
 		set(border, "To", to + reach)
 		set(border, "Color", theme(entry, "outlineColor"))
 		set(border, "Thickness", thickness + 2)
-		set(border, "Transparency", drawingAlpha(entry, 0))
+		set(border, "Transparency", alpha)
 		set(border, "Visible", true)
 	end
 	local reach = direction * (thickness / 2)
 	local main = use(entry, key, newDrawing, "Line", 2)
 	set(main, "From", from - reach)
 	set(main, "To", to + reach)
-	set(main, "Color", color)
+	set(main, "Color", theme(entry, feature .. "Color"))
 	set(main, "Thickness", thickness)
-	set(main, "Transparency", drawingAlpha(entry, 0))
+	set(main, "Transparency", alpha)
 	set(main, "Visible", true)
 end
 
-local function ring(entry, key, center, radius, color, thickness, zIndex)
+local function ring(entry, key, center, radius, color, thickness, alpha, zIndex)
 	local item = use(entry, key, newDrawing, "Circle", zIndex, false)
 	set(item, "Position", center)
 	set(item, "Radius", radius)
 	set(item, "NumSides", 32)
 	set(item, "Color", color)
 	set(item, "Thickness", thickness)
-	set(item, "Transparency", drawingAlpha(entry, 0))
+	set(item, "Transparency", alpha)
 	set(item, "Visible", true)
 end
 
-local function circle(entry, key, center, radius, color)
-	local thickness = theme(entry, "lineThickness")
-	if theme(entry, "lineOutline") then
+local function circle(entry, key, center, radius, feature)
+	local thickness = theme(entry, feature .. "Thickness")
+	local alpha = drawingAlpha(entry, theme(entry, feature .. "Transparency"))
+	if theme(entry, feature .. "Outline") then
 		local offset = thickness / 2 + 0.5
 		local outline = theme(entry, "outlineColor")
-		ring(entry, key .. "Outer", center, radius + offset, outline, 1, 1)
-		ring(entry, key .. "Inner", center, math.max(radius - offset, 0.5), outline, 1, 1)
+		ring(entry, key .. "Outer", center, radius + offset, outline, 1, alpha, 1)
+		ring(entry, key .. "Inner", center, math.max(radius - offset, 0.5), outline, 1, alpha, 1)
 	end
-	ring(entry, key, center, radius, color, thickness, 2)
+	ring(entry, key, center, radius, theme(entry, feature .. "Color"), thickness, alpha, 2)
+	set(entry.elements[key], "Filled", theme(entry, feature .. "Filled") == true)
 end
 
 local function grow(a, b, c, amount)
@@ -592,23 +616,24 @@ local function grow(a, b, c, amount)
 	return center + (a - center) * scale, center + (b - center) * scale, center + (c - center) * scale
 end
 
-local function triangle(entry, key, a, b, c, color)
-	if theme(entry, "lineOutline") then
+local function triangle(entry, key, a, b, c, feature)
+	local alpha = drawingAlpha(entry, theme(entry, feature .. "Transparency"))
+	if theme(entry, feature .. "Outline") then
 		local outerA, outerB, outerC = grow(a, b, c, 1)
 		local border = use(entry, key .. "Border", newDrawing, "Triangle", 1, true)
 		set(border, "PointA", outerA)
 		set(border, "PointB", outerB)
 		set(border, "PointC", outerC)
 		set(border, "Color", theme(entry, "outlineColor"))
-		set(border, "Transparency", drawingAlpha(entry, 0))
+		set(border, "Transparency", alpha)
 		set(border, "Visible", true)
 	end
 	local main = use(entry, key, newDrawing, "Triangle", 2, true)
 	set(main, "PointA", a)
 	set(main, "PointB", b)
 	set(main, "PointC", c)
-	set(main, "Color", color)
-	set(main, "Transparency", drawingAlpha(entry, 0))
+	set(main, "Color", theme(entry, feature .. "Color"))
+	set(main, "Transparency", alpha)
 	set(main, "Visible", true)
 end
 
@@ -623,10 +648,13 @@ local function styleLabel(entry, item, value, size, color, transparency, zIndex)
 end
 
 local function text(entry, key, parent, size, color, plain, rich)
-	local shadow = use(entry, key .. "Shadow", newLabel, parent)
-	local main = use(entry, key, newLabel, parent)
 	local escaped = escape(plain)
-	styleLabel(entry, shadow, escaped, size, theme(entry, "shadowColor"), theme(entry, "shadowTransparency"), 3)
+	local shadow
+	if theme(entry, "textShadow") then
+		shadow = use(entry, key .. "Shadow", newLabel, parent)
+		styleLabel(entry, shadow, escaped, size, theme(entry, "shadowColor"), theme(entry, "shadowTransparency"), 3)
+	end
+	local main = use(entry, key, newLabel, parent)
 	styleLabel(entry, main, rich or escaped, size, color, 0, 4)
 	return main, shadow, main.object.TextBounds
 end
@@ -645,7 +673,9 @@ end
 local function place(entry, main, shadow, x, y)
 	local offset = theme(entry, "shadowOffset")
 	set(main, "Position", UDim2.fromOffset(x, y))
-	set(shadow, "Position", UDim2.fromOffset(x + offset.X, y + offset.Y))
+	if shadow then
+		set(shadow, "Position", UDim2.fromOffset(x + offset.X, y + offset.Y))
+	end
 end
 
 local function avatarImage(entry, key, parent, image, x, y, size, radius)
@@ -734,14 +764,13 @@ local function drawBox(entry)
 		return
 	end
 	local view = entry.view
-	local color = theme(entry, "boxColor")
 	local style = option(entry, "box", "style")
 
 	if style == "3d" then
 		local corners = view.corners3d
 		if corners then
 			for index, edge in BOX_EDGES do
-				line(entry, EDGE_KEYS[index], corners[edge[1]], corners[edge[2]], color)
+				line(entry, EDGE_KEYS[index], corners[edge[1]], corners[edge[2]], "box")
 			end
 		end
 		return
@@ -756,42 +785,36 @@ local function drawBox(entry)
 		square(entry, "boxFill", 0, true, theme(entry, "boxFillColor"), theme(entry, "boxFillTransparency"), position, size)
 	end
 
-	if style == "corners" then
-		local thickness = math.max(1, math.floor(theme(entry, "lineThickness")))
-		local length = math.max(thickness + 1, math.floor(math.min(width, height) * theme(entry, "cornerLength")))
-		local left, top = view.minX, view.minY
-		local right, bottom = view.maxX - thickness + 1, view.maxY - thickness + 1
-		local farX, farY = view.maxX - length + 1, view.maxY - length + 1
-		local arms = {
-			left, top, length, thickness,
-			left, top, thickness, length,
-			farX, top, length, thickness,
-			right, top, thickness, length,
-			left, bottom, length, thickness,
-			left, farY, thickness, length,
-			farX, bottom, length, thickness,
-			right, farY, thickness, length,
-		}
-		local outline = theme(entry, "outlineColor")
-		local drawOutline = theme(entry, "lineOutline")
-		for index = 1, 8 do
-			local base = (index - 1) * 4
-			local armPosition = Vector2.new(arms[base + 1], arms[base + 2])
-			local armSize = Vector2.new(arms[base + 3], arms[base + 4])
-			if drawOutline then
-				square(entry, CORNER_OUTLINE_KEYS[index], 1, true, outline, 0, armPosition - Vector2.one, armSize + Vector2.one * 2)
-			end
-			square(entry, CORNER_KEYS[index], 2, true, color, 0, armPosition, armSize)
+	local thickness = math.max(1, math.floor(theme(entry, "boxThickness")))
+	local length = if style == "corners"
+		then math.max(thickness + 1, math.floor(math.min(width, height) * theme(entry, "cornerLength")))
+		else math.huge
+	local lengthX, lengthY = math.min(length, width + 1), math.min(length, height + 1)
+	local left, top = view.minX, view.minY
+	local right, bottom = view.maxX - thickness + 1, view.maxY - thickness + 1
+	local farX, farY = view.maxX - lengthX + 1, view.maxY - lengthY + 1
+	local arms = entry.armBuffer
+	arms[1], arms[2], arms[3], arms[4] = left, top, lengthX, thickness
+	arms[5], arms[6], arms[7], arms[8] = left, top, thickness, lengthY
+	arms[9], arms[10], arms[11], arms[12] = farX, top, lengthX, thickness
+	arms[13], arms[14], arms[15], arms[16] = right, top, thickness, lengthY
+	arms[17], arms[18], arms[19], arms[20] = left, bottom, lengthX, thickness
+	arms[21], arms[22], arms[23], arms[24] = left, farY, thickness, lengthY
+	arms[25], arms[26], arms[27], arms[28] = farX, bottom, lengthX, thickness
+	arms[29], arms[30], arms[31], arms[32] = right, farY, thickness, lengthY
+	local color = theme(entry, "boxColor")
+	local transparency = theme(entry, "boxTransparency")
+	local outline = theme(entry, "outlineColor")
+	local outlined = theme(entry, "boxOutline")
+	for index = 1, 8 do
+		local base = (index - 1) * 4
+		local armPosition = Vector2.new(arms[base + 1], arms[base + 2])
+		local armSize = Vector2.new(arms[base + 3], arms[base + 4])
+		if outlined then
+			square(entry, CORNER_OUTLINE_KEYS[index], 1, true, outline, transparency, armPosition - Vector2.one, armSize + Vector2.one * 2)
 		end
-		return
+		square(entry, CORNER_KEYS[index], 2, true, color, transparency, armPosition, armSize)
 	end
-
-	if theme(entry, "lineOutline") then
-		local outline = theme(entry, "outlineColor")
-		square(entry, "boxOuter", 1, false, outline, 0, position - Vector2.one, size + Vector2.one * 2)
-		square(entry, "boxInner", 1, false, outline, 0, position + Vector2.one, size - Vector2.one * 2)
-	end
-	square(entry, "box", 2, false, color, 0, position, size)
 end
 
 local function drawTracer(entry, viewport, mouse)
@@ -804,7 +827,12 @@ local function drawTracer(entry, viewport, mouse)
 		elseif origin == "top" then Vector2.new(viewport.X / 2, 0)
 		elseif origin == "mouse" then mouse
 		else Vector2.new(viewport.X / 2, viewport.Y)
-	line(entry, "tracer", from, Vector2.new((view.minX + view.maxX) / 2, view.maxY), theme(entry, "tracerColor"))
+	local target = option(entry, "tracer", "target")
+	local centerX = (view.minX + view.maxX) / 2
+	local to = if target == "center" then Vector2.new(centerX, (view.minY + view.maxY) / 2)
+		elseif target == "head" then Vector2.new(centerX, view.minY)
+		else Vector2.new(centerX, view.maxY)
+	line(entry, "tracer", from, to, "tracer")
 end
 
 local function limbEnds(part, inset)
@@ -836,22 +864,69 @@ local function r6Segments(rig, segments)
 	return segments
 end
 
+local function jointPosition(motor)
+	return if motor.Part0 then (motor.Part0.CFrame * motor.C0).Position else nil
+end
+
+local function extend(from, to, length)
+	if not (from and to) then
+		return nil
+	end
+	local delta = to - from
+	return if delta.Magnitude > 1e-3 then to + delta.Unit * length else nil
+end
+
+local function addSegment(segments, from, to)
+	if from and to then
+		table.insert(segments, from)
+		table.insert(segments, to)
+	end
+end
+
+local function r15Segments(rig, segments)
+	table.clear(segments)
+	local joints = rig.joints
+	local neck, waist = jointPosition(joints.Neck), jointPosition(joints.Waist)
+	local leftShoulder, rightShoulder = jointPosition(joints.LeftShoulder), jointPosition(joints.RightShoulder)
+	local leftElbow, rightElbow = jointPosition(joints.LeftElbow), jointPosition(joints.RightElbow)
+	local leftWrist, rightWrist = jointPosition(joints.LeftWrist), jointPosition(joints.RightWrist)
+	local leftHip, rightHip = jointPosition(joints.LeftHip), jointPosition(joints.RightHip)
+	local leftKnee, rightKnee = jointPosition(joints.LeftKnee), jointPosition(joints.RightKnee)
+	local leftAnkle, rightAnkle = jointPosition(joints.LeftAnkle), jointPosition(joints.RightAnkle)
+	local pelvis = if leftHip and rightHip then (leftHip + rightHip) / 2 else nil
+	addSegment(segments, rig.Head.Position, neck)
+	addSegment(segments, neck, waist)
+	addSegment(segments, waist, pelvis)
+	addSegment(segments, leftShoulder, rightShoulder)
+	addSegment(segments, leftShoulder, leftElbow)
+	addSegment(segments, leftElbow, leftWrist)
+	addSegment(segments, leftWrist, extend(leftElbow, leftWrist, rig.LeftHand.Size.Y))
+	addSegment(segments, rightShoulder, rightElbow)
+	addSegment(segments, rightElbow, rightWrist)
+	addSegment(segments, rightWrist, extend(rightElbow, rightWrist, rig.RightHand.Size.Y))
+	addSegment(segments, leftHip, rightHip)
+	addSegment(segments, leftHip, leftKnee)
+	addSegment(segments, leftKnee, leftAnkle)
+	addSegment(segments, leftAnkle, extend(leftKnee, leftAnkle, rig.LeftFoot.Size.Y))
+	addSegment(segments, rightHip, rightKnee)
+	addSegment(segments, rightKnee, rightAnkle)
+	addSegment(segments, rightAnkle, extend(rightKnee, rightAnkle, rig.RightFoot.Size.Y))
+	return segments
+end
+
 local function drawSkeleton(entry, camera)
 	if not option(entry, "skeleton", "enabled") then
 		return
 	end
-	local color = theme(entry, "skeletonColor")
-	local thickness = theme(entry, "skeletonThickness")
-	local outlined = theme(entry, "skeletonOutline")
 	local count = 0
-	if entry.r6 then
-		local segments = r6Segments(entry.r6, entry.segmentBuffer)
+	if entry.r6 or entry.r15 then
+		local segments = if entry.r6 then r6Segments(entry.r6, entry.segmentBuffer) else r15Segments(entry.r15, entry.segmentBuffer)
 		for index = 1, #segments, 2 do
 			local a, aFront = screen(camera, segments[index])
 			local b, bFront = screen(camera, segments[index + 1])
 			if aFront and bFront then
 				count += 1
-				line(entry, BONE_KEYS[count], a, b, color, thickness, outlined)
+				line(entry, BONE_KEYS[count], a, b, "skeleton")
 			end
 		end
 		return
@@ -878,7 +953,7 @@ local function drawSkeleton(entry, camera)
 		local b, bFront = screen(camera, to)
 		if aFront and bFront and count < #BONE_KEYS then
 			count += 1
-			line(entry, BONE_KEYS[count], a, b, color, thickness, outlined)
+			line(entry, BONE_KEYS[count], a, b, "skeleton")
 		end
 	end
 end
@@ -896,13 +971,13 @@ local function drawHead(entry, camera)
 		local edge = screen(camera, head.Position + camera.CFrame.UpVector * head.Size.Y / 2)
 		local radius = (edge - center).Magnitude
 		if radius >= 4 then
-			circle(entry, "headDot", center, radius, theme(entry, "headDotColor"))
+			circle(entry, "headDot", center, radius, "headDot")
 		end
 	end
 	if option(entry, "look", "enabled") then
 		local tip, tipFront = screen(camera, head.Position + head.CFrame.LookVector * option(entry, "look", "length"))
 		if tipFront then
-			line(entry, "look", center, tip, theme(entry, "lookColor"))
+			line(entry, "look", center, tip, "look")
 		end
 	end
 end
@@ -924,7 +999,7 @@ local function drawArrow(entry, camera, viewport)
 	local radius = math.min(option(entry, "arrow", "radius"), viewport.Y / 2 - 20)
 	local size = option(entry, "arrow", "size")
 	local tip = viewport / 2 + direction * radius
-	triangle(entry, "arrow", tip, tip - rotate(direction, 0.5) * size, tip - rotate(direction, -0.5) * size, theme(entry, "arrowColor"))
+	triangle(entry, "arrow", tip, tip - rotate(direction, 0.5) * size, tip - rotate(direction, -0.5) * size, "arrow")
 end
 
 local function drawSideBar(entry)
@@ -935,22 +1010,27 @@ local function drawSideBar(entry)
 		return minX - 1
 	end
 	local width = theme(entry, "barWidth")
-	local x = minX - theme(entry, "barGap") - width - 1
+	local border = if theme(entry, "barOutline") then 1 else 0
+	local onRight = option(entry, "health", "side") == "right"
+	local x = if onRight then view.maxX + theme(entry, "barGap") - border else minX - theme(entry, "barGap") - width - border
 	local item = use(entry, "healthBar", newBar, entry.esp.gui)
-	set(item, "Position", UDim2.fromOffset(x, minY - 1))
-	set(item, "Size", UDim2.fromOffset(width + 2, height + 2))
+	set(item, "Position", UDim2.fromOffset(x, minY - border))
+	set(item, "Size", UDim2.fromOffset(width + border * 2, height + border * 2))
 	set(item, "BackgroundColor3", theme(entry, "outlineColor"))
-	set(item, "BackgroundTransparency", guiAlpha(entry, 0))
+	set(item, "BackgroundTransparency", guiAlpha(entry, if border > 0 then 0 else 1))
 	set(item, "ZIndex", 3)
 	set(item, "Visible", true)
+	set(item.back, "Position", UDim2.fromOffset(border, border))
+	set(item.back, "Size", UDim2.fromOffset(width, height))
+	set(item.back, "BackgroundColor3", theme(entry, "barBackgroundColor"))
+	set(item.back, "BackgroundTransparency", guiAlpha(entry, theme(entry, "barBackgroundTransparency")))
 
 	local fill = math.round(height * view.fraction)
-	set(item.clip, "Position", UDim2.fromOffset(1, 1 + height - fill))
+	set(item.clip, "Position", UDim2.fromOffset(0, height - fill))
 	set(item.clip, "Size", UDim2.fromOffset(width, fill))
 	set(item.fill, "Position", UDim2.fromOffset(0, fill - height))
 	set(item.fill, "Size", UDim2.fromOffset(width, height))
 	set(item.fill, "BackgroundTransparency", guiAlpha(entry, 0))
-	set(item.fill, "ZIndex", 4)
 	if option(entry, "health", "gradient") then
 		set(item.gradient, "Enabled", true)
 		set(item.gradient, "Color", theme(entry, "healthColors"))
@@ -959,7 +1039,7 @@ local function drawSideBar(entry)
 		set(item.gradient, "Enabled", false)
 		set(item.fill, "BackgroundColor3", healthColor(entry, view.fraction))
 	end
-	return x
+	return if onRight then x + width + border * 2 else x
 end
 
 local function drawClassic(entry)
@@ -968,19 +1048,21 @@ local function drawClassic(entry)
 	local root = entry.esp.gui
 	local gap = theme(entry, "textGap")
 	local small = theme(entry, "smallTextSize")
-	local left = minX - 1
+	local onRight = option(entry, "health", "side") == "right"
+	local edge = if onRight then maxX + 1 else minX - 1
 
 	if healthShown(entry) then
 		local style = option(entry, "health", "style")
 		if style ~= "number" then
-			left = drawSideBar(entry)
+			edge = drawSideBar(entry)
 		end
 		local tooSmall = option(entry, "shrink", "enabled") and maxY - minY < option(entry, "shrink", "numberBelow")
 		if style ~= "bar" and not tooSmall then
 			local main, shadow, bounds = text(entry, "healthText", root, small, healthColor(entry, view.fraction), healthText(entry))
 			local fillTop = maxY - (maxY - minY) * view.fraction
 			local y = if style == "both" then math.clamp(fillTop - bounds.Y / 2, minY, math.max(minY, maxY - bounds.Y)) else minY
-			place(entry, main, shadow, left - theme(entry, "textGap") - math.ceil(bounds.X), math.floor(y))
+			local x = if onRight then edge + theme(entry, "textGap") else edge - theme(entry, "textGap") - math.ceil(bounds.X)
+			place(entry, main, shadow, x, math.floor(y))
 		end
 	end
 
@@ -1055,7 +1137,7 @@ local function drawPanel(entry, pill)
 	local padding = theme(entry, "panelPadding")
 	local spacing = theme(entry, "panelSpacing")
 	local small = theme(entry, "smallTextSize")
-	local panel = use(entry, "panel", newFrame, entry.esp.gui)
+	local panel = use(entry, "panel", newPanel, entry.esp.gui)
 	local parent = panel.object
 
 	local rowWidth, rowHeight = 0, 0
@@ -1112,6 +1194,9 @@ local function drawPanel(entry, pill)
 	set(panel, "ZIndex", 2 + math.max(0, 100000 - math.floor(view.distance)))
 	set(panel, "Visible", true)
 	set(panel.corner, "CornerRadius", UDim.new(0, if pill then math.floor(height / 2) else theme(entry, "panelCornerRadius")))
+	set(panel.stroke, "Color", theme(entry, "panelStrokeColor"))
+	set(panel.stroke, "Thickness", theme(entry, "panelStrokeThickness"))
+	set(panel.stroke, "Transparency", guiAlpha(entry, theme(entry, "panelStrokeTransparency")))
 end
 
 local function drawMinimal(entry)
@@ -1189,6 +1274,35 @@ local function r6Rig(model)
 	return rig
 end
 
+local R15_JOINTS = {
+	"Neck", "Waist", "LeftShoulder", "LeftElbow", "LeftWrist", "RightShoulder", "RightElbow", "RightWrist",
+	"LeftHip", "LeftKnee", "LeftAnkle", "RightHip", "RightKnee", "RightAnkle",
+}
+local R15_ENDS = { "Head", "LeftHand", "RightHand", "LeftFoot", "RightFoot" }
+
+local function r15Rig(model)
+	local joints = {}
+	for _, descendant in model:GetDescendants() do
+		if descendant:IsA("Motor6D") then
+			joints[descendant.Name] = descendant
+		end
+	end
+	local rig = { joints = joints }
+	for _, name in R15_JOINTS do
+		if not joints[name] then
+			return nil
+		end
+	end
+	for _, name in R15_ENDS do
+		local part = model:FindFirstChild(name)
+		if not (part and part:IsA("BasePart")) then
+			return nil
+		end
+		rig[name] = part
+	end
+	return rig
+end
+
 local function skeletonOf(model)
 	local motors, children = {}, {}
 	for _, descendant in model:GetDescendants() do
@@ -1218,8 +1332,10 @@ local function refreshParts(entry, model)
 		entry.parts = entry.accessors.parts(entry.target, model)
 		local humanoid = humanoidOf(model)
 		local wantsSkeleton = humanoid and option(entry, "skeleton", "enabled")
-		entry.r6 = if wantsSkeleton and humanoid.RigType == Enum.HumanoidRigType.R6 then r6Rig(model) else nil
-		entry.bones = if wantsSkeleton and not entry.r6 then skeletonOf(model) else nil
+		local isR6 = wantsSkeleton and humanoid.RigType == Enum.HumanoidRigType.R6
+		entry.r6 = if isR6 then r6Rig(model) else nil
+		entry.r15 = if wantsSkeleton and not isR6 then r15Rig(model) else nil
+		entry.bones = if wantsSkeleton and not entry.r6 and not entry.r15 then skeletonOf(model) else nil
 		entry.partsModel, entry.partsAt = model, now
 	end
 	return entry.parts
@@ -1479,6 +1595,7 @@ function Group:add(target, accessors)
 		detailBuffer = {},
 		partsBuffer = {},
 		segmentBuffer = {},
+		armBuffer = {},
 		view = { cornerBuffer = {} },
 		tick = 0,
 		opacity = 1,
