@@ -1129,6 +1129,29 @@ local function drawSideBar(entry)
 	return if onRight then x + width + border * 2 else x
 end
 
+local function leaderBar(entry, key, x, top, bottom, width, color, transparency, zIndex)
+	local item = use(entry, key, newFrame, entry.esp.gui)
+	set(item, "Position", UDim2.fromOffset(x - math.floor(width / 2), top))
+	set(item, "Size", UDim2.fromOffset(width, math.max(bottom - top, 0)))
+	set(item, "BackgroundColor3", color)
+	set(item, "BackgroundTransparency", guiAlpha(entry, transparency))
+	set(item, "ZIndex", entry.zBase + zIndex)
+	set(item, "Visible", true)
+end
+
+local function drawLeader(entry, x, top, bottom)
+	if bottom - top < 2 then
+		return
+	end
+	local width = math.max(1, math.round(theme(entry, "leaderThickness")))
+	local transparency = theme(entry, "leaderTransparency")
+	if theme(entry, "leaderOutline") then
+		local outline = math.max(1, math.round(theme(entry, "lineOutlineWidth")))
+		leaderBar(entry, "leaderOutline", x, top, bottom, width + outline * 2, theme(entry, "outlineColor"), transparency, 0)
+	end
+	leaderBar(entry, "leader", x, top, bottom, width, theme(entry, "leaderColor"), transparency, 1)
+end
+
 local function overlaps(a, x, y, width, height, spacing)
 	return x < a.x + a.width + spacing and a.x < x + width + spacing and y < a.y + a.height + spacing and a.y < y + height + spacing
 end
@@ -1160,9 +1183,7 @@ local function claim(entry, x, y, width, height)
 	end
 	table.insert(claims, { x = x, y = placed, width = width, height = height })
 	if placed < y - 1 then
-		local view = entry.view
-		local centerX = math.floor((view.minX + view.maxX) / 2)
-		line(entry, "leader", Vector2.new(x + width / 2, placed + height), Vector2.new(centerX, view.minY - 1), "leader")
+		drawLeader(entry, math.floor(x + width / 2), placed + height, entry.view.minY - 1)
 	end
 	return placed
 end
