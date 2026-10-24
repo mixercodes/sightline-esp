@@ -14,19 +14,6 @@ Needs the standard executor functions `Drawing`, `getgenv` and `loadstring` (plu
 
 `test.luau` spawns six dummies (one per layout) and a crate in front of you and turns on every feature for players. Run it with `sightline.luau` in the workspace folder, and stop it with `getgenv().SightlineTest.stop()`.
 
-## Examples
-
-Complete scripts in [`examples/`](examples), each loading the library from `main`:
-
-| Script | For |
-|---|---|
-| [`competitive.luau`](examples/competitive.luau) | corner boxes, health bar and number, distance; targets behind walls turn grey; teammates hidden |
-| [`tactical.luau`](examples/tactical.luau) | skeleton, head dot, look line and faint tracers to heads; the target nearest the mouse turns red |
-| [`cards.luau`](examples/cards.luau) | social and roleplay games: cards with avatar, display and user name, weapon, team and a bounty tag from an attribute |
-| [`streamer.luau`](examples/streamer.luau) | quiet overlay: small names and distance in metres that fade out with range |
-| [`chams.luau`](examples/chams.luau) | glow only: team-coloured chams with a small name |
-| [`loot.luau`](examples/loot.luau) | items instead of players: 3D boxes coloured by a `Rarity` attribute |
-
 ## API
 
 ```luau
