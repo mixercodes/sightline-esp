@@ -485,18 +485,22 @@ end
 
 local function line(entry, key, from, to, color)
 	local thickness = theme(entry, "lineThickness")
+	local delta = to - from
+	local direction = if delta.Magnitude > 1e-3 then delta.Unit else Vector2.zero
 	if theme(entry, "lineOutline") then
+		local reach = direction * (thickness / 2 + 1)
 		local border = use(entry, key .. "Border", newDrawing, "Line", 1)
-		set(border, "From", from)
-		set(border, "To", to)
+		set(border, "From", from - reach)
+		set(border, "To", to + reach)
 		set(border, "Color", theme(entry, "outlineColor"))
 		set(border, "Thickness", thickness + 2)
 		set(border, "Transparency", drawingAlpha(entry, 0))
 		set(border, "Visible", true)
 	end
+	local reach = direction * (thickness / 2)
 	local main = use(entry, key, newDrawing, "Line", 2)
-	set(main, "From", from)
-	set(main, "To", to)
+	set(main, "From", from - reach)
+	set(main, "To", to + reach)
 	set(main, "Color", color)
 	set(main, "Thickness", thickness)
 	set(main, "Transparency", drawingAlpha(entry, 0))
@@ -525,14 +529,27 @@ local function circle(entry, key, center, radius, color)
 	set(main, "Visible", true)
 end
 
+local function grow(a, b, c, amount)
+	local sideA, sideB, sideC = (b - c).Magnitude, (c - a).Magnitude, (a - b).Magnitude
+	local perimeter = sideA + sideB + sideC
+	local area = math.abs((b - a).X * (c - a).Y - (b - a).Y * (c - a).X) / 2
+	if perimeter < 1e-3 or area < 1e-3 then
+		return a, b, c
+	end
+	local center = (a * sideA + b * sideB + c * sideC) / perimeter
+	local inradius = area / (perimeter / 2)
+	local scale = (inradius + amount) / inradius
+	return center + (a - center) * scale, center + (b - center) * scale, center + (c - center) * scale
+end
+
 local function triangle(entry, key, a, b, c, color)
 	if theme(entry, "lineOutline") then
-		local border = use(entry, key .. "Border", newDrawing, "Triangle", 1, false)
-		set(border, "PointA", a)
-		set(border, "PointB", b)
-		set(border, "PointC", c)
+		local outerA, outerB, outerC = grow(a, b, c, 1)
+		local border = use(entry, key .. "Border", newDrawing, "Triangle", 1, true)
+		set(border, "PointA", outerA)
+		set(border, "PointB", outerB)
+		set(border, "PointC", outerC)
 		set(border, "Color", theme(entry, "outlineColor"))
-		set(border, "Thickness", 3)
 		set(border, "Transparency", drawingAlpha(entry, 0))
 		set(border, "Visible", true)
 	end
