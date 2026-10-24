@@ -84,7 +84,7 @@ local SETTINGS_DEFAULTS = {
 	arrow = { enabled = false, radius = 160, size = 12 },
 	chams = { enabled = false, throughWalls = true },
 	shrink = { enabled = true, badgeBeyond = 60, minimalBeyond = 120, numberBeyond = 160 },
-	declutter = { enabled = true, maxLift = 150, spacing = 2 },
+	declutter = { enabled = true, maxLift = 150, spacing = 2, leaders = false },
 }
 local CHOICES = {
 	layout = { classic = true, card = true, badge = true, minimal = true },
@@ -1182,7 +1182,7 @@ local function claim(entry, x, y, width, height)
 		end
 	end
 	table.insert(claims, { x = x, y = placed, width = width, height = height })
-	if placed < y - 1 then
+	if placed < y - 1 and option(entry, "declutter", "leaders") then
 		drawLeader(entry, math.floor(x + width / 2), placed + height, entry.view.minY - 1)
 	end
 	return placed
