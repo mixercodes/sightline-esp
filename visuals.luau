@@ -868,12 +868,16 @@ local function jointPosition(motor)
 	return if motor.Part0 then (motor.Part0.CFrame * motor.C0).Position else nil
 end
 
-local function extend(from, to, length)
+local function extend(from, to, part)
 	if not (from and to) then
 		return nil
 	end
 	local delta = to - from
-	return if delta.Magnitude > 1e-3 then to + delta.Unit * length else nil
+	if delta.Magnitude < 1e-3 then
+		return nil
+	end
+	local along = (part.Position - to):Dot(delta.Unit)
+	return if along > 0 then to + delta.Unit * along else nil
 end
 
 local function addSegment(segments, from, to)
@@ -900,17 +904,17 @@ local function r15Segments(rig, segments)
 	addSegment(segments, leftShoulder, rightShoulder)
 	addSegment(segments, leftShoulder, leftElbow)
 	addSegment(segments, leftElbow, leftWrist)
-	addSegment(segments, leftWrist, extend(leftElbow, leftWrist, rig.LeftHand.Size.Y))
+	addSegment(segments, leftWrist, extend(leftElbow, leftWrist, rig.LeftHand))
 	addSegment(segments, rightShoulder, rightElbow)
 	addSegment(segments, rightElbow, rightWrist)
-	addSegment(segments, rightWrist, extend(rightElbow, rightWrist, rig.RightHand.Size.Y))
+	addSegment(segments, rightWrist, extend(rightElbow, rightWrist, rig.RightHand))
 	addSegment(segments, leftHip, rightHip)
 	addSegment(segments, leftHip, leftKnee)
 	addSegment(segments, leftKnee, leftAnkle)
-	addSegment(segments, leftAnkle, extend(leftKnee, leftAnkle, rig.LeftFoot.Size.Y))
+	addSegment(segments, leftAnkle, extend(leftKnee, leftAnkle, rig.LeftFoot))
 	addSegment(segments, rightHip, rightKnee)
 	addSegment(segments, rightKnee, rightAnkle)
-	addSegment(segments, rightAnkle, extend(rightKnee, rightAnkle, rig.RightFoot.Size.Y))
+	addSegment(segments, rightAnkle, extend(rightKnee, rightAnkle, rig.RightFoot))
 	return segments
 end
 
