@@ -54,7 +54,7 @@ esp:unload()
 | `distance` | off, `unit "studs"` | `studs`, `meters` |
 | `weapon`, `team`, `tags` | off | extra lines (classic) or a details row (card) |
 | `tracer` | off, `origin "bottom"` | `bottom`, `center`, `top`, `mouse` |
-| `skeleton` | off | built from the rig's Motor6Ds, works for R6, R15 and custom rigs |
+| `skeleton` | off | R6 follows each limb's centre line (spine, shoulder and hip bars, straight limbs); R15 and custom rigs are built from their Motor6Ds |
 | `headDot` | off | |
 | `look` | off, `length 6` | line along the head's look direction |
 | `arrow` | off, `radius 160`, `size 12` | points at targets that are off screen or behind you |

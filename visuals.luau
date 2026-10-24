@@ -802,12 +802,56 @@ local function drawTracer(entry, viewport, mouse)
 	line(entry, "tracer", from, Vector2.new((view.minX + view.maxX) / 2, view.maxY), theme(entry, "tracerColor"))
 end
 
+local function limbEnds(part, inset)
+	local cframe, half = part.CFrame, part.Size.Y / 2
+	return cframe * Vector3.new(0, half - inset, 0), cframe * Vector3.new(0, inset - half, 0)
+end
+
+local function r6Segments(rig, segments)
+	table.clear(segments)
+	local torso = rig.Torso
+	local torsoHalf = torso.Size.Y / 2
+	local neck = torso.CFrame * Vector3.new(0, torsoHalf, 0)
+	local pelvis = torso.CFrame * Vector3.new(0, -torsoHalf, 0)
+	local leftShoulder, leftHand = limbEnds(rig["Left Arm"], rig["Left Arm"].Size.X / 2)
+	local rightShoulder, rightHand = limbEnds(rig["Right Arm"], rig["Right Arm"].Size.X / 2)
+	local leftHip, leftFoot = limbEnds(rig["Left Leg"], 0)
+	local rightHip, rightFoot = limbEnds(rig["Right Leg"], 0)
+	table.move({
+		rig.Head.Position, neck,
+		neck, pelvis,
+		leftShoulder, rightShoulder,
+		leftShoulder, leftHand,
+		rightShoulder, rightHand,
+		pelvis, leftHip,
+		pelvis, rightHip,
+		leftHip, leftFoot,
+		rightHip, rightFoot,
+	}, 1, 18, 1, segments)
+	return segments
+end
+
 local function drawSkeleton(entry, camera)
-	if not option(entry, "skeleton", "enabled") or not entry.bones then
+	if not option(entry, "skeleton", "enabled") then
 		return
 	end
 	local color = theme(entry, "skeletonColor")
 	local count = 0
+	if entry.r6 then
+		local segments = r6Segments(entry.r6, entry.segmentBuffer)
+		for index = 1, #segments, 2 do
+			local a, aFront = screen(camera, segments[index])
+			local b, bFront = screen(camera, segments[index + 1])
+			if aFront and bFront then
+				count += 1
+				line(entry, BONE_KEYS[count], a, b, color)
+			end
+		end
+		return
+	end
+	if not entry.bones then
+		return
+	end
 	for _, bone in entry.bones do
 		local motor, child = bone[1], bone[2]
 		if not (motor.Part0 and motor.Part1) then
@@ -1124,6 +1168,20 @@ local function pivotOf(model)
 	return nil
 end
 
+local R6_PARTS = { "Head", "Torso", "Left Arm", "Right Arm", "Left Leg", "Right Leg" }
+
+local function r6Rig(model)
+	local rig = {}
+	for _, name in R6_PARTS do
+		local part = model:FindFirstChild(name)
+		if not (part and part:IsA("BasePart")) then
+			return nil
+		end
+		rig[name] = part
+	end
+	return rig
+end
+
 local function skeletonOf(model)
 	local motors, children = {}, {}
 	for _, descendant in model:GetDescendants() do
@@ -1151,7 +1209,10 @@ local function refreshParts(entry, model)
 	local now = os.clock()
 	if entry.partsModel ~= model or now - entry.partsAt > PARTS_REFRESH then
 		entry.parts = entry.accessors.parts(entry.target, model)
-		entry.bones = if option(entry, "skeleton", "enabled") and humanoidOf(model) then skeletonOf(model) else nil
+		local humanoid = humanoidOf(model)
+		local wantsSkeleton = humanoid and option(entry, "skeleton", "enabled")
+		entry.r6 = if wantsSkeleton and humanoid.RigType == Enum.HumanoidRigType.R6 then r6Rig(model) else nil
+		entry.bones = if wantsSkeleton and not entry.r6 then skeletonOf(model) else nil
 		entry.partsModel, entry.partsAt = model, now
 	end
 	return entry.parts
@@ -1410,6 +1471,7 @@ function Group:add(target, accessors)
 		overlays = {},
 		detailBuffer = {},
 		partsBuffer = {},
+		segmentBuffer = {},
 		view = { cornerBuffer = {} },
 		tick = 0,
 		opacity = 1,
