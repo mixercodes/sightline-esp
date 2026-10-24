@@ -57,7 +57,7 @@ esp:unload()
 | `avatar` | off | headshot next to the name |
 | `distance` | off, `unit "studs"` | `studs`, `meters` |
 | `weapon`, `team`, `tags` | off | extra lines (classic) or a details row (card) |
-| `tracer` | off, `origin "bottom"`, `target "bottom"` | origin: `bottom`, `center`, `top`, `mouse`; target: `bottom`, `center`, `head` |
+| `tracer` | off, `origin "bottom"`, `target "bottom"` | origin: `bottom`, `center`, `top`, `mouse`; target: `bottom`, `center`, `top` (box top), `head` (the head itself, or the box top when there is none) |
 | `skeleton` | off | R6 and R15 draw a head line, spine, shoulder and hip bars and straight limbs; other rigs fall back to their Motor6D chain |
 | `headDot` | off | |
 | `look` | off, `length 6` | line along the head's look direction |

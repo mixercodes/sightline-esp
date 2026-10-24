@@ -91,7 +91,7 @@ local CHOICES = {
 	["name.style"] = { display = true, username = true, both = true },
 	["distance.unit"] = { studs = true, meters = true },
 	["tracer.origin"] = { bottom = true, center = true, top = true, mouse = true },
-	["tracer.target"] = { bottom = true, center = true, head = true },
+	["tracer.target"] = { bottom = true, center = true, top = true, head = true },
 	["health.side"] = { left = true, right = true },
 }
 local OVERLAY_KEYS = { theme = true, variants = true, occluded = true, focused = true }
@@ -879,9 +879,18 @@ local function drawTracer(entry, viewport, mouse)
 		else Vector2.new(viewport.X / 2, viewport.Y)
 	local target = option(entry, "tracer", "target")
 	local centerX = (view.minX + view.maxX) / 2
-	local to = if target == "center" then Vector2.new(centerX, (view.minY + view.maxY) / 2)
-		elseif target == "head" then Vector2.new(centerX, view.minY)
-		else Vector2.new(centerX, view.maxY)
+	local to = Vector2.new(centerX, view.maxY)
+	if target == "center" then
+		to = Vector2.new(centerX, (view.minY + view.maxY) / 2)
+	elseif target == "top" then
+		to = Vector2.new(centerX, view.minY)
+	elseif target == "head" then
+		local head, inFront = nil, false
+		if view.head then
+			head, inFront = screen(view.head.Position)
+		end
+		to = if inFront then head else Vector2.new(centerX, view.minY)
+	end
 	line(entry, "tracer", from, to, "tracer")
 end
 
