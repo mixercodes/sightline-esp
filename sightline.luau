@@ -1017,126 +1017,118 @@ local function jointPosition(joint, frames)
 	return if attachment.Parent then attachment.WorldPosition else nil
 end
 
-local function longAxis(cframe, size, direction)
-	local right, up, look = cframe.RightVector, cframe.UpVector, cframe.LookVector
-	local dx, dy, dz = right:Dot(direction), up:Dot(direction), look:Dot(direction)
-	local ax, ay, az = math.abs(dx), math.abs(dy), math.abs(dz)
-	if ax >= ay and ax >= az then
-		return if dx >= 0 then right else -right, size.X / 2
-	elseif ay >= az then
-		return if dy >= 0 then up else -up, size.Y / 2
+local function jointFrames(joint)
+	local motor = joint.motor
+	if motor then
+		return motor.C0, motor.C1
 	end
-	return if dz >= 0 then look else -look, size.Z / 2
+	return joint.attachment.CFrame, joint.attachment1.CFrame
 end
 
-local function reach(cframe, size, origin, direction)
-	local half = size / 2
-	return (cframe.Position - origin):Dot(direction)
-		+ math.abs(cframe.RightVector:Dot(direction)) * half.X
-		+ math.abs(cframe.UpVector:Dot(direction)) * half.Y
-		+ math.abs(cframe.LookVector:Dot(direction)) * half.Z
+local function limbAxis(size, direction)
+	local x, y, z = math.abs(direction.X) * size.X, math.abs(direction.Y) * size.Y, math.abs(direction.Z) * size.Z
+	if x >= y and x >= z then
+		return Vector3.new(if direction.X < 0 then -1 else 1, 0, 0), size.X / 2
+	elseif y >= z then
+		return Vector3.new(0, if direction.Y < 0 then -1 else 1, 0), size.Y / 2
+	end
+	return Vector3.new(0, 0, if direction.Z < 0 then -1 else 1), size.Z / 2
 end
 
-local function chainPoints(chain, motors, sizes, frames, points, owners, toSole)
-	table.clear(points)
-	table.clear(owners)
-	local first = chain[1]
-	local entry = jointPosition(motors[first], frames)
-	if not entry then
-		return points, owners
+local function newRigPath()
+	return { parts = {}, offsets = {}, pairParts = {}, pairOffsets = {} }
+end
+
+local function addPoint(path, part, offset)
+	table.insert(path.parts, part)
+	table.insert(path.offsets, offset)
+end
+
+local function chainPath(chain, joints, sizes, toSole)
+	local path = newRigPath()
+	local first, count = chain[1], #chain
+	local _, entryFrame = jointFrames(joints[first])
+	local entry = entryFrame.Position
+	local toward = Vector3.zero
+	if count > 1 then
+		toward = (jointFrames(joints[chain[2]])).Position
 	end
-	points[1], owners[1] = entry, first
-	local count = #chain
+	local axis = limbAxis(sizes[first], toward - entry)
+	local start = axis * entry:Dot(axis)
+	addPoint(path, first, start)
 	for index = 2, count do
-		local joint = jointPosition(motors[chain[index]], frames)
-		if joint then
-			table.insert(points, joint)
-			table.insert(owners, chain[index])
-		end
+		local _, pivot = jointFrames(joints[chain[index]])
+		addPoint(path, chain[index], pivot.Position)
 	end
-	local firstFrame = frameOf(frames, first)
-	local center = firstFrame.Position
-	local axis = longAxis(firstFrame, sizes[first], (points[2] or center) - entry)
-	points[1] = center + axis * (entry - center):Dot(axis)
-	local last, lastPoint = chain[count], points[#points]
-	local lastFrame = frameOf(frames, last)
-	local lastCenter = lastFrame.Position
-	if count > 1 and #points > 1 then
-		local direction = lastPoint - points[#points - 1]
+	local last = chain[count]
+	local half = sizes[last] / 2
+	if count > 1 then
+		local c0, c1 = jointFrames(joints[last])
+		local previous = if count == 2 then start else (select(2, jointFrames(joints[chain[count - 1]]))).Position
+		local direction = c0.Position - previous
 		if direction.Magnitude > 1e-3 then
-			local unit = direction.Unit
-			local along = if toSole
-				then reach(lastFrame, sizes[last], lastPoint, unit) - SOLE_INSET
-				else (lastCenter - lastPoint):Dot(unit)
+			local unit = (c0 * c1:Inverse()):VectorToObjectSpace(direction).Unit
+			local pivot = c1.Position
+			local along = -pivot:Dot(unit)
+			if toSole then
+				along += math.abs(unit.X) * half.X + math.abs(unit.Y) * half.Y + math.abs(unit.Z) * half.Z - SOLE_INSET
+			end
 			if along > 0 then
-				table.insert(points, lastPoint + unit * along)
-				table.insert(owners, last)
+				addPoint(path, last, pivot + unit * along)
 			end
 		end
 	else
-		local tipAxis, half = longAxis(lastFrame, sizes[last], lastCenter - lastPoint)
-		table.insert(points, lastCenter + tipAxis * math.max(half - LIMB_TIP_INSET, 0))
-		table.insert(owners, last)
+		local tipAxis, extent = limbAxis(sizes[last], -start)
+		addPoint(path, last, tipAxis * math.max(extent - LIMB_TIP_INSET, 0))
 	end
-	return points, owners
+	return path
 end
 
-local function joinLimbs(left, leftOwners, right, rightOwners)
-	local points, owners = {}, {}
+local function joinLimbs(left, right)
+	local path = newRigPath()
 	if left then
-		for index = #left, 1, -1 do
-			table.insert(points, left[index])
-			table.insert(owners, leftOwners[index])
+		for index = #left.parts, 1, -1 do
+			addPoint(path, left.parts[index], left.offsets[index])
 		end
 	end
 	if right then
-		table.move(right, 1, #right, #points + 1, points)
-		table.move(rightOwners, 1, #rightOwners, #owners + 1, owners)
+		for index, part in right.parts do
+			addPoint(path, part, right.offsets[index])
+		end
 	end
-	return points, owners
-end
-
-local function anchored(points, owners)
-	local offsets = table.create(#points)
-	for index, point in points do
-		offsets[index] = owners[index].CFrame:PointToObjectSpace(point)
-	end
-	return { parts = owners, offsets = offsets }
+	return path
 end
 
 local function rigPaths(rig)
-	local motors, sizes, frames = rig.motors, rig.sizes, {}
-	local function limb(chain, toSole)
-		if chain then
-			return chainPoints(chain, motors, sizes, frames, {}, {}, toSole)
+	local joints, sizes = rig.motors, rig.sizes
+	local leftArm = rig.leftArm and chainPath(rig.leftArm, joints, sizes, false)
+	local rightArm = rig.rightArm and chainPath(rig.rightArm, joints, sizes, false)
+	local leftLeg = rig.leftLeg and chainPath(rig.leftLeg, joints, sizes, true)
+	local rightLeg = rig.rightLeg and chainPath(rig.rightLeg, joints, sizes, true)
+	local spine = newRigPath()
+	local head = rig.head
+	if head then
+		addPoint(spine, head, Vector3.zero)
+		if joints[head] then
+			local _, neck = jointFrames(joints[head])
+			addPoint(spine, head, neck.Position)
 		end
-		return nil, nil
-	end
-	local leftArm, leftArmOwners = limb(rig.leftArm, false)
-	local rightArm, rightArmOwners = limb(rig.rightArm, false)
-	local leftLeg, leftLegOwners = limb(rig.leftLeg, true)
-	local rightLeg, rightLegOwners = limb(rig.rightLeg, true)
-	local spine, spineOwners = {}, {}
-	local function add(point, owner)
-		if point then
-			table.insert(spine, point)
-			table.insert(spineOwners, owner)
-		end
-	end
-	if rig.head then
-		add(rig.head.Position, rig.head)
-		add(jointPosition(motors[rig.head], frames), rig.head)
 	end
 	for index = #rig.torso, 2, -1 do
-		add(jointPosition(motors[rig.torso[index]], frames), rig.torso[index])
+		local part = rig.torso[index]
+		local _, pivot = jointFrames(joints[part])
+		addPoint(spine, part, pivot.Position)
 	end
-	local leftHip, rightHip = leftLeg and leftLeg[1], rightLeg and rightLeg[1]
-	add(if leftHip and rightHip then (leftHip + rightHip) / 2 else jointPosition(motors[rig.torso[1]], frames), rig.torso[1])
-	return {
-		anchored(spine, spineOwners),
-		anchored(joinLimbs(leftArm, leftArmOwners, rightArm, rightArmOwners)),
-		anchored(joinLimbs(leftLeg, leftLegOwners, rightLeg, rightLegOwners)),
-	}
+	if leftLeg and rightLeg then
+		addPoint(spine, leftLeg.parts[1], leftLeg.offsets[1])
+		spine.pairParts[#spine.parts] = rightLeg.parts[1]
+		spine.pairOffsets[#spine.parts] = rightLeg.offsets[1]
+	else
+		local base = rig.torso[1]
+		local _, pivot = jointFrames(joints[base])
+		addPoint(spine, base, pivot.Position)
+	end
+	return { spine, joinLimbs(leftArm, rightArm), joinLimbs(leftLeg, rightLeg) }
 end
 
 local PATH_KEYS = { { "spine", "spineBorder" }, { "arms", "armsBorder" }, { "legs", "legsBorder" } }
@@ -1192,8 +1184,14 @@ local function drawPath(entry, keys, path, frames)
 	table.clear(pathCoords)
 	table.clear(pathControls)
 	local inverse, centerX, centerY, scale = projection.inverse, projection.centerX, projection.centerY, projection.scale
+	local pairParts, pairOffsets = path.pairParts, path.pairOffsets
 	for index, part in parts do
-		local relative = inverse * (frameOf(frames, part) * offsets[index])
+		local point = frameOf(frames, part) * offsets[index]
+		local pair = pairParts[index]
+		if pair then
+			point = (point + frameOf(frames, pair) * pairOffsets[index]) / 2
+		end
+		local relative = inverse * point
 		local depth = -relative.Z
 		if depth <= 0 then
 			return
@@ -1685,7 +1683,7 @@ local function collectJoints(model)
 			local part0 = attachment0 and attachment0.Parent
 			local part1 = attachment1 and attachment1.Parent
 			if part0 and part1 and part0:IsA("BasePart") and part1:IsA("BasePart") and not joints[part1] then
-				joints[part1] = { attachment = attachment0, part0 = part0, part1 = part1 }
+				joints[part1] = { attachment = attachment0, attachment1 = attachment1, part0 = part0, part1 = part1 }
 			end
 		end
 	end
