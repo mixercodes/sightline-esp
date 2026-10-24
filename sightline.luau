@@ -105,7 +105,7 @@ local STUDS_TO_METERS = 0.28
 local MAX_HIGHLIGHTS = 31
 local PARTS_REFRESH = 0.5
 local VISIBILITY_INTERVAL = 0.1
-local SESSION_KEY = "VisualsSession"
+local SESSION_KEY = "SightlineSession"
 local CORNERS = {
 	Vector3.new(-1, -1, -1), Vector3.new(-1, -1, 1), Vector3.new(-1, 1, -1), Vector3.new(-1, 1, 1),
 	Vector3.new(1, -1, -1), Vector3.new(1, -1, 1), Vector3.new(1, 1, -1), Vector3.new(1, 1, 1),
@@ -148,14 +148,14 @@ for corner = 0, 7 do
 	end
 end
 
-local Visuals = {}
+local Sightline = {}
 local Esp = {}
 Esp.__index = Esp
 local Group = {}
 Group.__index = Group
 
 local function unknown(kind, path, key)
-	error(string.format("visuals: unknown %s '%s%s'", kind, path, tostring(key)), 0)
+	error(string.format("sightline: unknown %s '%s%s'", kind, path, tostring(key)), 0)
 end
 
 local function checkValue(path, key, value, default)
@@ -163,11 +163,11 @@ local function checkValue(path, key, value, default)
 		return
 	end
 	if typeof(value) ~= typeof(default) then
-		error(string.format("visuals: '%s%s' must be a %s, got %s", path, key, typeof(default), typeof(value)), 0)
+		error(string.format("sightline: '%s%s' must be a %s, got %s", path, key, typeof(default), typeof(value)), 0)
 	end
 	local choices = CHOICES[path .. key]
 	if choices and not choices[value] then
-		error(string.format("visuals: '%s%s' cannot be '%s'", path, key, tostring(value)), 0)
+		error(string.format("sightline: '%s%s' cannot be '%s'", path, key, tostring(value)), 0)
 	end
 end
 
@@ -177,7 +177,7 @@ local function strict(defaults, given, path, partial, specials)
 	given = given or {}
 	specials = specials or {}
 	if type(given) ~= "table" then
-		error(string.format("visuals: '%s' must be a table", path), 0)
+		error(string.format("sightline: '%s' must be a table", path), 0)
 	end
 	for key, value in given do
 		local default = defaults[key]
@@ -217,7 +217,7 @@ local function strict(defaults, given, path, partial, specials)
 			local special = specials[key]
 			if special then
 				if not special.replace then
-					error(string.format("visuals: set the fields of '%s%s' instead of replacing it", path, key), 0)
+					error(string.format("sightline: set the fields of '%s%s' instead of replacing it", path, key), 0)
 				end
 				special.value = special.replace(value)
 				store[key] = special.value
@@ -227,7 +227,7 @@ local function strict(defaults, given, path, partial, specials)
 			if default == nil then
 				unknown("setting", path, key)
 			elseif type(default) == "table" then
-				error(string.format("visuals: set the fields of '%s%s' instead of replacing it", path, key), 0)
+				error(string.format("sightline: set the fields of '%s%s' instead of replacing it", path, key), 0)
 			end
 			checkValue(path, key, value, default)
 			store[key] = value
@@ -256,7 +256,7 @@ function buildSettings(given, partial)
 	local specials = { theme = { value = strict(THEME_DEFAULTS, overlays.theme, "theme.", true) } }
 	if partial then
 		if overlays.variants or overlays.occluded or overlays.focused then
-			error("visuals: variants, occluded and focused only go at the top of a group's settings", 3)
+			error("sightline: variants, occluded and focused only go at the top of a group's settings", 3)
 		end
 	else
 		local built = {}
@@ -1562,7 +1562,7 @@ local function report(entry, problem)
 	entry.shownHealth = nil
 	if not entry.reported then
 		entry.reported = true
-		warn(string.format("visuals: %s failed and is hidden until it recovers: %s", tostring(entry.target), tostring(problem)))
+		warn(string.format("sightline: %s failed and is hidden until it recovers: %s", tostring(entry.target), tostring(problem)))
 	end
 end
 
@@ -1841,7 +1841,7 @@ function Esp:unload()
 	end
 end
 
-function Visuals.start(themeOverrides)
+function Sightline.start(themeOverrides)
 	local running = getgenv()[SESSION_KEY]
 	if running then
 		running:unload()
@@ -1876,4 +1876,4 @@ function Visuals.start(themeOverrides)
 	return esp
 end
 
-return Visuals
+return Sightline

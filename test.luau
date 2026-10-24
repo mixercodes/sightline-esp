@@ -9,11 +9,11 @@ local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 local LocalPlayer = Players.LocalPlayer
 
-if getgenv().VisualsTest then
-	getgenv().VisualsTest.stop()
+if getgenv().SightlineTest then
+	getgenv().SightlineTest.stop()
 end
 
-local Visuals = loadstring(readfile("visuals.luau"), "visuals")()
+local Sightline = loadstring(readfile("sightline.luau"), "sightline")()
 
 local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
 local root = character:WaitForChild("HumanoidRootPart")
@@ -27,7 +27,7 @@ for _, descendant in template:GetDescendants() do
 end
 
 local folder = Instance.new("Folder")
-folder.Name = "VisualsDummies"
+folder.Name = "SightlineDummies"
 folder.Parent = Workspace
 
 local humanoids = {}
@@ -61,7 +61,7 @@ local healthLoop = RunService.Heartbeat:Connect(function()
 	end
 end)
 
-local esp = Visuals.start()
+local esp = Sightline.start()
 
 local players = esp:players({
 	health = { style = "both" },
@@ -112,7 +112,7 @@ local loot = esp:group({
 })
 loot:add(crate)
 
-getgenv().VisualsTest = {
+getgenv().SightlineTest = {
 	esp = esp,
 	players = players,
 	dummies = dummies,
@@ -121,6 +121,6 @@ getgenv().VisualsTest = {
 		healthLoop:Disconnect()
 		esp:unload()
 		folder:Destroy()
-		getgenv().VisualsTest = nil
+		getgenv().SightlineTest = nil
 	end,
 }

@@ -1,21 +1,21 @@
-# Visuals
+# Sightline
 
 ESP for players, NPCs, items and anything else in the world, built to one house look.
 
 ## Loading
 
-Put `visuals.luau` in the executor's workspace folder (on umbra that is `~/.local/share/umbra/shared/`), then:
+Put `sightline.luau` in the executor's workspace folder (on umbra that is `~/.local/share/umbra/shared/`), then:
 
 ```luau
-local Visuals = loadstring(readfile("visuals.luau"), "visuals")()
+local Sightline = loadstring(readfile("sightline.luau"), "sightline")()
 ```
 
-`test.luau` spawns six dummies (one per layout) and a crate in front of you and turns on every feature for players. Stop it with `getgenv().VisualsTest.stop()`.
+`test.luau` spawns six dummies (one per layout) and a crate in front of you and turns on every feature for players. Stop it with `getgenv().SightlineTest.stop()`.
 
 ## API
 
 ```luau
-local esp = Visuals.start(themeOverrides?)
+local esp = Sightline.start(themeOverrides?)
 
 local players = esp:players(settings?, accessors?)
 local loot = esp:group(settings?, accessors?)
